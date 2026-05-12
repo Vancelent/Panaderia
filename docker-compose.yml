@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    # Exponemos el puerto 8000 en tu máquina al 8000 del contenedor
+    ports:
+      - "8000:8000"
+    # Volumen montado para 'hot-reload'. Todo lo que cambies en c:\...\Panaderia se refleja adentro.
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/erp_panaderia
+    depends_on:
+      - db
+    command: [ "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
+
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: erp_panaderia
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  # Declaración del volumen nombrado
+  postgres_data:
