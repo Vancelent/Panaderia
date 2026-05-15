@@ -5,15 +5,10 @@ import ProtectedRoute from './context/ProtectedRoute';
 import Login from './views/Login';
 import DashboardContador from './views/DashboardContador';
 import CajaRegistradora from './views/CajaRegistradora';
+import PanelPanadero from './views/PanelPanadero';
 
 // Componentes "Placeholder" para vistas aún no desarrolladas
 
-const Produccion = () => (
-  <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-8">
-    <h1 className="text-4xl font-extrabold text-slate-800 mb-4">🥐 Módulo de Producción</h1>
-    <p className="text-lg text-slate-500 font-medium">Panel de horneado y mermas en construcción.</p>
-  </div>
-);
 
 const PanelAdmin = () => (
   <div className="min-h-screen bg-gray-50">
@@ -57,7 +52,7 @@ function App() {
             path="/produccion" 
             element={
               <ProtectedRoute rolesPermitidos={['Admin', 'Encargada', 'Panadero']}>
-                <Produccion />
+                <PanelPanadero />
               </ProtectedRoute>
             } 
           />

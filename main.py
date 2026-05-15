@@ -21,7 +21,7 @@ app = FastAPI(title="ERP/POS Panadería Artesanal")
 # Configuración de CORS para permitir conexiones desde el Frontend (React/Vue)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite todos los orígenes en desarrollo
+    allow_origins=["*"],  # En producción después lo cerramos, ahora dejalo así para probar
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -117,6 +117,23 @@ def obtener_turno_activo(
         raise HTTPException(status_code=404, detail="No hay turno activo para este usuario.")
         
     return {"turno_id": turno_activo.id, "efectivo_inicial": turno_activo.efectivo_inicial, "fecha_apertura": turno_activo.fecha_apertura}
+
+@app.get("/productos/", response_model=list[schemas.ProductoOut])
+def obtener_productos(
+    db: Session = Depends(get_db),
+    usuario_actual: models.Usuario = Depends(get_usuario_actual)
+):
+    return db.query(models.Producto).all()
+
+@app.get("/materias-primas/")
+def obtener_materias_primas(
+    db: Session = Depends(get_db),
+    usuario_actual: models.Usuario = Depends(get_usuario_actual)
+):
+    mps = db.query(models.MateriaPrima).all()
+    # Retornamos formato diccionario por simplicidad ya que no tenemos MateriaPrimaOut
+    return [{"id": mp.id, "nombre": mp.nombre, "stock_actual_kg": mp.stock_actual_kg, "unidad_medida": mp.unidad_medida} for mp in mps]
+
 
 @app.post("/productos/", status_code=status.HTTP_201_CREATED, response_model=schemas.ProductoOut)
 def crear_producto(
@@ -241,6 +258,32 @@ def crear_materia_prima(
     db.commit()
     db.refresh(nueva_mp)
     return {"mensaje": "Materia Prima creada exitosamente.", "id": nueva_mp.id}
+
+@app.post("/produccion/", status_code=status.HTTP_201_CREATED)
+def registrar_produccion(
+    lote_in: schemas.LoteProduccionCreate,
+    db: Session = Depends(get_db),
+    usuario_actual: models.Usuario = Depends(get_usuario_actual)
+):
+    # Buscar producto
+    producto = db.query(models.Producto).filter(models.Producto.id == lote_in.producto_id).first()
+    if not producto:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+        
+    # Crear registro de lote (trazabilidad)
+    nuevo_lote = models.LoteProduccion(
+        producto_id=lote_in.producto_id,
+        usuario_id=usuario_actual.id,
+        cantidad_producida=lote_in.cantidad_producida
+    )
+    db.add(nuevo_lote)
+    
+    # SUMAR el stock al mostrador
+    producto.stock_mostrador += lote_in.cantidad_producida
+    
+    db.commit()
+    return {"mensaje": "Tanda registrada con éxito. Stock sumado.", "nuevo_stock": producto.stock_mostrador}
+
 
 @app.post("/recetas/", status_code=status.HTTP_201_CREATED)
 def crear_receta_insumo(
