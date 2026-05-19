@@ -147,7 +147,7 @@ def crear_producto(
     db.refresh(nuevo_producto)
     return nuevo_producto
 
-@app.post("/ventas/registrar", status_code=status.HTTP_201_CREATED)
+@app.post("/ventas/", status_code=status.HTTP_201_CREATED)
 def registrar_venta(
     venta_in: schemas.VentaCreate, 
     db: Session = Depends(get_db),
