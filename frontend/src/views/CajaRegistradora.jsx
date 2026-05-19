@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   Search, User, FileText, Users, Receipt, Divide, Tag, 
   ChevronRight, Delete, X, CreditCard, Banknote, Store, 
-  Wifi, Signal, Home, ChevronRightCircle, Box, Trash2
+  Wifi, Signal, Home, ChevronRightCircle, Box, Trash2, AlertTriangle
 } from 'lucide-react';
 import api from '../api/api';
 
@@ -23,6 +23,12 @@ const CajaRegistradora = () => {
   
   // Estado para Modal de Pago
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+
+  // Estado para Modal de Baja
+  const [showBajaModal, setShowBajaModal] = useState(false);
+  const [bajaProductoId, setBajaProductoId] = useState('');
+  const [bajaCantidad, setBajaCantidad] = useState('');
+  const [bajaMotivo, setBajaMotivo] = useState('');
 
   // Verificar si ya hay un turno abierto
   const verificarTurno = async () => {
@@ -46,7 +52,9 @@ const CajaRegistradora = () => {
   const fetchProductos = async () => {
     try {
       const res = await api.get('/productos/');
-      setProductos(res.data);
+      // Sort by id to ensure stable ordering
+      const sortedProductos = res.data.sort((a, b) => a.id - b.id);
+      setProductos(sortedProductos);
     } catch (err) {
       setError("Error al cargar el catálogo de productos.");
     }
@@ -175,6 +183,30 @@ const CajaRegistradora = () => {
       setError(err.response?.data?.detail || "Error al conectar con el servidor.");
       setTimeout(() => setError(''), 4000);
     }
+  };
+
+  const solicitarBaja = async (e) => {
+    e.preventDefault();
+    if (!bajaProductoId || !bajaCantidad || !bajaMotivo) {
+      setError("Completa todos los campos de la baja.");
+      return;
+    }
+    try {
+      await api.post('/produccion/merma', {
+        producto_id: parseInt(bajaProductoId),
+        cantidad_perdida: parseInt(bajaCantidad),
+        motivo: bajaMotivo
+      });
+      setSuccessMsg("Baja registrada con éxito.");
+      setShowBajaModal(false);
+      setBajaProductoId('');
+      setBajaCantidad('');
+      setBajaMotivo('');
+      fetchProductos();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Error al registrar la baja.");
+    }
+    setTimeout(() => { setError(''); setSuccessMsg(''); }, 4000);
   };
 
   // Filtro de búsqueda
@@ -317,15 +349,25 @@ const CajaRegistradora = () => {
               <span>Panadería</span>
             </div>
             
-            <div className="relative">
-              <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Buscar Productos" 
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 w-64 rounded-full border border-slate-300 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all shadow-sm"
-              />
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setShowBajaModal(true)}
+                className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-100 transition-colors"
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Solicitar Baja
+              </button>
+
+              <div className="relative">
+                <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Buscar Productos" 
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-4 py-2 w-64 rounded-full border border-slate-300 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all shadow-sm"
+                />
+              </div>
             </div>
           </div>
 
@@ -397,6 +439,68 @@ const CajaRegistradora = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE BAJA / MERMA */}
+      {showBajaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-[400px] overflow-hidden">
+            <div className="bg-red-600 p-4 flex justify-between items-center text-white">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                Registrar Baja (Merma)
+              </h3>
+              <button onClick={() => setShowBajaModal(false)} className="hover:text-red-200"><X className="w-6 h-6"/></button>
+            </div>
+            
+            <form onSubmit={solicitarBaja} className="p-6 flex flex-col gap-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Producto</label>
+                <select 
+                  required
+                  value={bajaProductoId}
+                  onChange={e => setBajaProductoId(e.target.value)}
+                  className="w-full border border-slate-300 rounded p-2 outline-none focus:border-red-400"
+                >
+                  <option value="">Seleccione un producto</option>
+                  {productos.map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre} (Stock: {p.stock_mostrador})</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Cantidad a dar de baja</label>
+                <input 
+                  type="number" 
+                  required 
+                  min="1"
+                  value={bajaCantidad}
+                  onChange={e => setBajaCantidad(e.target.value)}
+                  className="w-full border border-slate-300 rounded p-2 outline-none focus:border-red-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Motivo (Ej. Caída, Vencido)</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={bajaMotivo}
+                  onChange={e => setBajaMotivo(e.target.value)}
+                  className="w-full border border-slate-300 rounded p-2 outline-none focus:border-red-400"
+                />
+              </div>
+
+              <button 
+                type="submit" 
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg mt-2 transition-colors"
+              >
+                CONFIRMAR BAJA
+              </button>
+            </form>
           </div>
         </div>
       )}
