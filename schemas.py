@@ -63,3 +63,26 @@ class RecetaInsumoCreate(BaseModel):
     materia_prima_id: int
     cantidad_necesaria: float
 
+class ProduccionBulkItem(BaseModel):
+    producto_id: int
+    cantidad: int
+
+class ProduccionBulkRequest(BaseModel):
+    productos: list[ProduccionBulkItem]
+
+class ProveedorCreate(BaseModel):
+    nombre: str
+    cuit: str | None = None
+    telefono: str | None = None
+    direccion: str | None = None
+    notas: str | None = None
+
+class CompraMateriaPrimaCreate(BaseModel):
+    proveedor_id: int
+    materia_prima_id: int
+    cantidad_comprada: float
+    precio_total: float
+
+class GastoVarioCreate(BaseModel):
+    concepto: str
+    monto: float

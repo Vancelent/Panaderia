@@ -16,6 +16,14 @@ from fastapi.middleware.cors import CORSMiddleware
 # Crea automáticamente las tablas en la Base de Datos conectada si no existen
 Base.metadata.create_all(bind=engine)
 
+# Auto-migrate: Agregar columna costo_unitario_actual si no existe
+from sqlalchemy import text
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE materias_primas ADD COLUMN IF NOT EXISTS costo_unitario_actual FLOAT NOT NULL DEFAULT 0.0;"))
+except Exception as e:
+    print("Migración de columna falló (puede que ya exista o sea SQLite):", e)
+
 app = FastAPI(title="ERP/POS Panadería Artesanal")
 
 # Configuración de CORS para permitir conexiones desde el Frontend (React/Vue)
@@ -259,30 +267,26 @@ def crear_materia_prima(
     db.refresh(nueva_mp)
     return {"mensaje": "Materia Prima creada exitosamente.", "id": nueva_mp.id}
 
-@app.post("/produccion/", status_code=status.HTTP_201_CREATED)
-def registrar_produccion(
-    lote_in: schemas.LoteProduccionCreate,
-    db: Session = Depends(get_db),
-    usuario_actual: models.Usuario = Depends(get_usuario_actual)
-):
-    # Buscar producto
-    producto = db.query(models.Producto).filter(models.Producto.id == lote_in.producto_id).first()
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado.")
-        
-    # Crear registro de lote (trazabilidad)
-    nuevo_lote = models.LoteProduccion(
-        producto_id=lote_in.producto_id,
-        usuario_id=usuario_actual.id,
-        cantidad_producida=lote_in.cantidad_producida
-    )
-    db.add(nuevo_lote)
-    
-    # SUMAR el stock al mostrador
-    producto.stock_mostrador += lote_in.cantidad_producida
-    
+@app.post("/produccion/")
+def registrar_produccion_bloque(request: schemas.ProduccionBulkRequest, db: Session = Depends(get_db)):
+    productos_procesados = 0
+    total_unidades = 0
+
+    for item in request.productos:
+        if item.cantidad <= 0:
+            continue # Ignorar si la cantidad es 0 o negativa
+            
+        producto = db.query(models.Producto).filter(models.Producto.id == item.producto_id).first()
+        if not producto:
+            continue # Si por alguna razon no existe, lo saltamos
+            
+        producto.stock_mostrador += item.cantidad
+        productos_procesados += 1
+        total_unidades += item.cantidad
+
     db.commit()
-    return {"mensaje": "Tanda registrada con éxito. Stock sumado.", "nuevo_stock": producto.stock_mostrador}
+    
+    return {"mensaje": f"Se registraron {total_unidades} unidades en {productos_procesados} productos distintos."}
 
 
 @app.post("/recetas/", status_code=status.HTTP_201_CREATED)
@@ -376,5 +380,70 @@ def registrar_merma(
     
     producto.stock_mostrador -= merma_in.cantidad_perdida
     db.commit()
-    return {"mensaje": "Merma registrada. Stock descontado exitosamente."}
+    return {"mensaje": f"Merma registrada. Nuevo stock: {producto.stock_mostrador}"}
 
+
+# ==========================================
+# MODULO ADMINISTRADOR / FINANZAS
+# ==========================================
+
+@app.post("/proveedores/")
+def crear_proveedor(prov_in: schemas.ProveedorCreate, db: Session = Depends(get_db)):
+    nuevo_prov = models.Proveedor(**prov_in.model_dump())
+    db.add(nuevo_prov)
+    db.commit()
+    return {"mensaje": "Proveedor creado con éxito"}
+
+@app.get("/proveedores/")
+def listar_proveedores(db: Session = Depends(get_db)):
+    return db.query(models.Proveedor).all()
+
+@app.post("/compras/")
+def registrar_compra_mp(compra_in: schemas.CompraMateriaPrimaCreate, db: Session = Depends(get_db)):
+    # 1. Verificar materia prima
+    mp = db.query(models.MateriaPrima).filter(models.MateriaPrima.id == compra_in.materia_prima_id).first()
+    if not mp:
+        raise HTTPException(status_code=404, detail="Materia prima no encontrada")
+    
+    # 2. Actualizar Stock y Costo Promedio (o Costo Última Compra)
+    if compra_in.cantidad_comprada > 0:
+        mp.stock_actual_kg += compra_in.cantidad_comprada
+        # Calculamos el costo por unidad de esta nueva compra
+        nuevo_costo_unitario = compra_in.precio_total / compra_in.cantidad_comprada
+        # Para simplificar, asumimos Costo de Última Compra (se podría hacer un promedio ponderado)
+        mp.costo_unitario_actual = nuevo_costo_unitario
+
+    # 3. Registrar Compra
+    nueva_compra = models.CompraMateriaPrima(**compra_in.model_dump())
+    db.add(nueva_compra)
+    db.commit()
+    
+    return {"mensaje": "Compra registrada, stock y costos actualizados."}
+
+@app.post("/gastos/")
+def registrar_gasto(gasto_in: schemas.GastoVarioCreate, db: Session = Depends(get_db)):
+    nuevo_gasto = models.GastoVario(**gasto_in.model_dump())
+    db.add(nuevo_gasto)
+    db.commit()
+    return {"mensaje": "Gasto registrado."}
+
+@app.get("/finanzas/resumen/")
+def obtener_resumen_financiero(db: Session = Depends(get_db)):
+    # Para simplificar, tomamos todo el histórico. En un caso real se filtraría por mes/fecha.
+    total_ventas = db.query(func.sum(models.Venta.monto)).scalar() or 0.0
+    total_compras = db.query(func.sum(models.CompraMateriaPrima.precio_total)).scalar() or 0.0
+    total_gastos = db.query(func.sum(models.GastoVario.monto)).scalar() or 0.0
+    
+    ganancia_bruta = total_ventas - total_compras
+    ganancia_neta = ganancia_bruta - total_gastos
+
+    # Contar mermas
+    total_mermas = db.query(func.sum(models.Merma.cantidad_perdida)).scalar() or 0
+
+    return {
+        "ventas_totales": float(total_ventas),
+        "compras_materias_primas": float(total_compras),
+        "gastos_operativos": float(total_gastos),
+        "ganancia_neta": float(ganancia_neta),
+        "unidades_perdidas_merma": total_mermas
+    }

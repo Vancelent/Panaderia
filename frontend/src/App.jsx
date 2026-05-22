@@ -10,15 +10,7 @@ import PanelPanadero from './views/PanelPanadero';
 // Componentes "Placeholder" para vistas aún no desarrolladas
 
 
-const PanelAdmin = () => (
-  <div className="min-h-screen bg-gray-50">
-    <div className="bg-slate-900 text-white p-4 shadow-md flex justify-between items-center">
-      <h1 className="text-xl font-bold">ERP Panadería - Admin</h1>
-      <span className="text-sm bg-blue-600 px-3 py-1 rounded-full font-medium">Administración General</span>
-    </div>
-    <DashboardContador />
-  </div>
-);
+import PanelAdmin from './views/PanelAdmin';
 
 function App() {
   return (

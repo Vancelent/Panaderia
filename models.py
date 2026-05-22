@@ -69,8 +69,10 @@ class MateriaPrima(Base):
     nombre: Mapped[str] = mapped_column(String, index=True, nullable=False)
     stock_actual_kg: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     unidad_medida: Mapped[str] = mapped_column(String, nullable=False)
+    costo_unitario_actual: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     recetas = relationship("RecetaInsumo", back_populates="materia_prima")
+    compras = relationship("CompraMateriaPrima", back_populates="materia_prima")
 
 class RecetaInsumo(Base):
     __tablename__ = "recetas_insumos"
@@ -131,3 +133,36 @@ class Merma(Base):
 
     producto = relationship("Producto")
     usuario = relationship("Usuario")
+
+class Proveedor(Base):
+    __tablename__ = "proveedores"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    nombre: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    cuit: Mapped[str] = mapped_column(String, nullable=True)
+    telefono: Mapped[str] = mapped_column(String, nullable=True)
+    direccion: Mapped[str] = mapped_column(String, nullable=True)
+    notas: Mapped[str] = mapped_column(String, nullable=True)
+
+    compras = relationship("CompraMateriaPrima", back_populates="proveedor")
+
+class CompraMateriaPrima(Base):
+    __tablename__ = "compras_materias_primas"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    proveedor_id: Mapped[int] = mapped_column(ForeignKey("proveedores.id"), nullable=False)
+    materia_prima_id: Mapped[int] = mapped_column(ForeignKey("materias_primas.id"), nullable=False)
+    cantidad_comprada: Mapped[float] = mapped_column(Float, nullable=False)
+    precio_total: Mapped[float] = mapped_column(Float, nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    proveedor = relationship("Proveedor", back_populates="compras")
+    materia_prima = relationship("MateriaPrima", back_populates="compras")
+
+class GastoVario(Base):
+    __tablename__ = "gastos_varios"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    concepto: Mapped[str] = mapped_column(String, nullable=False)
+    monto: Mapped[float] = mapped_column(Float, nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
