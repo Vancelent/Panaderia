@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import Integer, String, Float, ForeignKey, DateTime, Enum as SQLAlchemyEnum
+from sqlalchemy import Integer, String, Float, ForeignKey, DateTime, Boolean, Enum as SQLAlchemyEnum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from database import Base
 
@@ -14,6 +14,11 @@ class RolEnum(str, enum.Enum):
 class EstadoTurnoEnum(str, enum.Enum):
     ABIERTO = "Abierto"
     CERRADO = "Cerrado"
+
+class MetodoPagoEnum(str, enum.Enum):
+    EFECTIVO = "Efectivo"
+    TARJETA = "Tarjeta"
+    TRANSFERENCIA = "Transferencia"
 
 # --- Modelos (Tablas de BD) ---
 class Usuario(Base):
@@ -47,6 +52,7 @@ class Venta(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     turno_id: Mapped[int] = mapped_column(ForeignKey("turnos.id"), nullable=False)
     monto: Mapped[float] = mapped_column(Float, nullable=False)
+    metodo_pago: Mapped[MetodoPagoEnum] = mapped_column(SQLAlchemyEnum(MetodoPagoEnum), default=MetodoPagoEnum.EFECTIVO)
 
     turno = relationship("Turno", back_populates="ventas")
     detalles = relationship("DetalleVenta", back_populates="venta")
@@ -70,6 +76,7 @@ class MateriaPrima(Base):
     stock_actual_kg: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     unidad_medida: Mapped[str] = mapped_column(String, nullable=False)
     costo_unitario_actual: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     recetas = relationship("RecetaInsumo", back_populates="materia_prima")
     compras = relationship("CompraMateriaPrima", back_populates="materia_prima")
@@ -154,6 +161,7 @@ class CompraMateriaPrima(Base):
     materia_prima_id: Mapped[int] = mapped_column(ForeignKey("materias_primas.id"), nullable=False)
     cantidad_comprada: Mapped[float] = mapped_column(Float, nullable=False)
     precio_total: Mapped[float] = mapped_column(Float, nullable=False)
+    metodo_pago: Mapped[MetodoPagoEnum] = mapped_column(SQLAlchemyEnum(MetodoPagoEnum), default=MetodoPagoEnum.EFECTIVO)
     fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     proveedor = relationship("Proveedor", back_populates="compras")
@@ -165,4 +173,32 @@ class GastoVario(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     concepto: Mapped[str] = mapped_column(String, nullable=False)
     monto: Mapped[float] = mapped_column(Float, nullable=False)
+    metodo_pago: Mapped[MetodoPagoEnum] = mapped_column(SQLAlchemyEnum(MetodoPagoEnum), default=MetodoPagoEnum.EFECTIVO)
     fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class AuditoriaInventario(Base):
+    __tablename__ = "auditorias_inventario"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    materia_prima_id: Mapped[int] = mapped_column(ForeignKey("materias_primas.id"), nullable=False)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    stock_teorico: Mapped[float] = mapped_column(Float, nullable=False)
+    stock_real: Mapped[float] = mapped_column(Float, nullable=False)
+    diferencia: Mapped[float] = mapped_column(Float, nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    materia_prima = relationship("MateriaPrima")
+    usuario = relationship("Usuario")
+
+class HistorialPrecio(Base):
+    __tablename__ = "historial_precios"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    producto_id: Mapped[int] = mapped_column(ForeignKey("productos.id"), nullable=False)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    precio_anterior: Mapped[float] = mapped_column(Float, nullable=False)
+    precio_nuevo: Mapped[float] = mapped_column(Float, nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    producto = relationship("Producto")
+    usuario = relationship("Usuario")

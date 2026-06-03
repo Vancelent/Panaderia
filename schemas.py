@@ -30,6 +30,7 @@ class DetalleVentaCreate(BaseModel):
 class VentaCreate(BaseModel):
     turno_id: int
     detalles: list[DetalleVentaCreate]
+    metodo_pago: str = "Efectivo"
 
 class TurnoCierre(BaseModel):
     monto_declarado: float
@@ -58,6 +59,20 @@ class MateriaPrimaCreate(BaseModel):
     stock_actual_kg: float
     unidad_medida: str
 
+class MateriaPrimaUpdate(BaseModel):
+    nombre: str | None = None
+    stock_actual_kg: float | None = None
+    unidad_medida: str | None = None
+
+class RecetaItem(BaseModel):
+    materia_prima_id: int
+    cantidad_necesaria: float
+
+class ProductoUpdate(BaseModel):
+    nombre: str | None = None
+    precio_venta: float | None = None
+    recetas: list[RecetaItem] | None = None
+
 class RecetaInsumoCreate(BaseModel):
     producto_id: int
     materia_prima_id: int
@@ -82,7 +97,16 @@ class CompraMateriaPrimaCreate(BaseModel):
     materia_prima_id: int
     cantidad_comprada: float
     precio_total: float
+    metodo_pago: str = "Efectivo"
 
 class GastoVarioCreate(BaseModel):
     concepto: str
     monto: float
+    metodo_pago: str = "Efectivo"
+
+class AuditoriaInventarioCreate(BaseModel):
+    materia_prima_id: int
+    stock_real: float
+
+class ProductoUpdatePrecio(BaseModel):
+    nuevo_precio: float

@@ -29,6 +29,10 @@ const CajaRegistradora = () => {
   const [bajaProductoId, setBajaProductoId] = useState('');
   const [bajaCantidad, setBajaCantidad] = useState('');
   const [bajaMotivo, setBajaMotivo] = useState('');
+  
+  // Modal de Cierre de Turno
+  const [showCierreModal, setShowCierreModal] = useState(false);
+  const [montoDeclarado, setMontoDeclarado] = useState('');
 
   // Verificar si ya hay un turno abierto
   const verificarTurno = async () => {
@@ -165,7 +169,7 @@ const CajaRegistradora = () => {
   const confirmarVenta = async (metodoPago) => {
     const payload = {
       turno_id: turnoActivo || 1, // Se envía el turno activo
-      metodo_pago: metodoPago.toLowerCase(),
+      metodo_pago: metodoPago, // Capitalized string matching Enum
       total: calcularTotal(),
       detalles: carrito.map(i => ({ producto_id: i.producto_id, cantidad: i.cantidad }))
     };
@@ -209,6 +213,46 @@ const CajaRegistradora = () => {
     setTimeout(() => { setError(''); setSuccessMsg(''); }, 4000);
   };
 
+  const handleCerrarTurno = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await api.post(`http://localhost:8000/turnos/${turnoActivo}/cerrar`, {
+        monto_declarado: parseFloat(montoDeclarado)
+      });
+      if (response.status === 200) {
+        setTurnoActivo(null);
+        setShowCierreModal(false);
+        setMontoDeclarado('');
+        setSuccessMsg("Turno cerrado exitosamente");
+        setTimeout(() => setSuccessMsg(''), 4000);
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || "Error al cerrar el turno.");
+      setTimeout(() => setError(''), 4000);
+    }
+  };
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        if (showPaymentModal) {
+          // If modal is open, maybe confirm? Usually requires selecting method. We'll leave it simple.
+        } else if (carrito.length > 0 && !showBajaModal && !showCierreModal) {
+          setShowPaymentModal(true);
+        }
+      }
+      if (e.key === 'Escape') {
+        setShowPaymentModal(false);
+        setShowBajaModal(false);
+        setShowCierreModal(false);
+        setNumpadBuffer('');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [carrito, showPaymentModal, showBajaModal, showCierreModal]);
+
   // Filtro de búsqueda
   const productosFiltrados = productos.filter(p => 
     p.nombre.toLowerCase().includes(searchTerm.toLowerCase())
@@ -247,6 +291,12 @@ const CajaRegistradora = () => {
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             Turno #{turnoActivo}
           </div>
+          <button 
+            onClick={() => setShowCierreModal(true)}
+            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 text-xs font-bold rounded"
+          >
+            Cerrar Turno
+          </button>
           <div className="flex items-center gap-3 text-slate-400">
             <User className="w-4 h-4" /> Asesor 1
             <Signal className="w-4 h-4 text-emerald-500" />
@@ -413,7 +463,7 @@ const CajaRegistradora = () => {
 
       </div>
 
-      {/* MODAL DE PAGO (Mantiene el rediseño anterior pero adaptado) */}
+      {/* MODAL DE PAGO */}
       {showPaymentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-[500px] overflow-hidden">
@@ -433,7 +483,7 @@ const CajaRegistradora = () => {
                   <Banknote className="w-10 h-10 text-emerald-600 mb-2" />
                   <span className="font-bold text-slate-700">Efectivo</span>
                 </button>
-                <button onClick={() => confirmarVenta('Transferencia')} className="flex flex-col items-center justify-center p-6 bg-slate-50 hover:bg-blue-50 border-2 border-slate-200 hover:border-blue-500 rounded-xl transition-all">
+                <button onClick={() => confirmarVenta('Tarjeta')} className="flex flex-col items-center justify-center p-6 bg-slate-50 hover:bg-blue-50 border-2 border-slate-200 hover:border-blue-500 rounded-xl transition-all">
                   <CreditCard className="w-10 h-10 text-blue-600 mb-2" />
                   <span className="font-bold text-slate-700">Tarjeta / Transf.</span>
                 </button>
@@ -500,6 +550,26 @@ const CajaRegistradora = () => {
               >
                 CONFIRMAR BAJA
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cierre de Turno */}
+      {showCierreModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-96 max-w-full m-4">
+            <h3 className="text-xl font-bold text-slate-800 mb-4 text-center">Cerrar Caja</h3>
+            <p className="text-sm text-slate-500 mb-4 text-center">Ingresa el monto total en efectivo que hay en la caja física ahora mismo para calcular el arqueo.</p>
+            <form onSubmit={handleCerrarTurno} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-500 mb-1">Efectivo en Caja ($)</label>
+                <input required type="number" step="0.01" min="0" value={montoDeclarado} onChange={e => setMontoDeclarado(e.target.value)} className="w-full border-2 border-slate-200 rounded p-3 text-xl text-center text-slate-800" placeholder="0.00" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowCierreModal(false)} className="flex-1 py-2 bg-slate-200 text-slate-700 font-bold rounded">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-red-600 text-white font-bold rounded">Cerrar Turno</button>
+              </div>
             </form>
           </div>
         </div>
