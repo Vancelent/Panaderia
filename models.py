@@ -64,6 +64,7 @@ class Producto(Base):
     nombre: Mapped[str] = mapped_column(String, index=True, nullable=False)
     precio_venta: Mapped[float] = mapped_column(Float, nullable=False)
     stock_mostrador: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     detalles = relationship("DetalleVenta", back_populates="producto")
     recetas = relationship("RecetaInsumo", back_populates="producto")

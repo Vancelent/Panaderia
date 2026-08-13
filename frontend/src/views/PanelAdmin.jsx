@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Truck, PackageSearch, Users, Wallet, TrendingUp, DollarSign, PlusCircle, ClipboardCheck, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Truck, PackageSearch, Users, Wallet, TrendingUp, DollarSign, PlusCircle, ClipboardCheck, BookOpen, Trash2 } from 'lucide-react';
 import api from '../api/api';
 
 // ==========================================
@@ -69,6 +69,67 @@ const DashboardTab = () => {
           <div>
             <p className="text-sm font-bold text-emerald-100 uppercase tracking-wider">Ganancia Neta</p>
             <p className="text-4xl font-black">${resumen.ganancia_neta.toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-xl font-bold text-slate-800 mb-6">Ingresos vs Gastos (Últimos 7 días)</h3>
+          <div className="h-80 flex items-end justify-between gap-2 px-2 pb-6 border-b border-slate-100">
+            {(resumen.datos_grafico || []).map((dia, idx) => {
+              const maxVal = Math.max(...(resumen.datos_grafico || []).map(d => Math.max(d.ventas, d.costos)));
+              const alturaVentas = maxVal > 0 ? (dia.ventas / maxVal) * 100 : 0;
+              const alturaCostos = maxVal > 0 ? (dia.costos / maxVal) * 100 : 0;
+              return (
+                <div key={idx} className="flex flex-col items-center flex-1 group">
+                  <div className="flex items-end gap-1 w-full h-64 mb-4">
+                    <div className="w-1/2 bg-blue-500 rounded-t-sm transition-all duration-500 group-hover:bg-blue-400 relative" style={{ height: `${alturaVentas}%` }}>
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-10 font-bold">
+                        V: ${dia.ventas}
+                      </div>
+                    </div>
+                    <div className="w-1/2 bg-red-400 rounded-t-sm transition-all duration-500 group-hover:bg-red-300 relative" style={{ height: `${alturaCostos}%` }}>
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-10 font-bold">
+                        C: ${dia.costos}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-slate-500 uppercase">{dia.dia}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-center gap-6 mt-4">
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-500 rounded-full"></div><span className="text-sm font-bold text-slate-600">Ventas</span></div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-400 rounded-full"></div><span className="text-sm font-bold text-slate-600">Costos</span></div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
+          <h3 className="text-xl font-bold text-slate-800 mb-6">Top 3 Productos</h3>
+          <div className="flex-1 flex flex-col justify-center space-y-6">
+            {(resumen.top_productos || []).map((p, idx) => {
+              const maxCant = Math.max(...(resumen.top_productos || []).map(x => x.cantidad));
+              const ancho = maxCant > 0 ? (p.cantidad / maxCant) * 100 : 0;
+              return (
+                <div key={idx} className="w-full">
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm font-bold text-slate-700">{p.nombre}</span>
+                    <span className="text-sm font-black text-emerald-600">{p.cantidad} u.</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-3">
+                    <div className="bg-emerald-500 h-3 rounded-full transition-all duration-1000" style={{ width: `${ancho}%` }}></div>
+                  </div>
+                </div>
+              );
+            })}
+            {(!resumen.top_productos || resumen.top_productos.length === 0) && (
+              <p className="text-slate-400 font-medium text-center italic">Aún no hay ventas suficientes</p>
+            )}
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <p className="text-sm font-medium text-slate-500 text-center">Basado en volumen de ventas histórico</p>
           </div>
         </div>
       </div>
@@ -288,6 +349,16 @@ const CatalogoCostosTab = () => {
     setNuevoInsumoReceta({ materia_prima_id: '', cantidad_necesaria: '' });
   };
 
+  const handleOcultarProducto = async (productoId) => {
+    if(!window.confirm("¿Estás seguro de ocultar/dar de baja este producto? No aparecerá en caja pero mantendrá el historial.")) return;
+    try {
+      await api.delete(`/productos/${productoId}`);
+      fetchData();
+    } catch (err) {
+      alert("Error al ocultar producto");
+    }
+  };
+
   const handleCrearProducto = async (e) => {
     e.preventDefault();
     try {
@@ -374,19 +445,27 @@ const CatalogoCostosTab = () => {
                 <td className="p-4 text-emerald-600 font-bold">${prod.margen_ganancia}</td>
                 <td className="p-4 text-emerald-600 font-bold">{prod.porcentaje_margen}%</td>
                 <td className="p-4 text-right">
-                  <button 
-                    onClick={() => { 
-                      setNuevoProd({ 
-                        producto_id: prod.producto_id, 
-                        nombre: prod.nombre, 
-                        precio_venta: prod.precio_venta, 
-                        recetas: prod.recetas || [] 
-                      }); 
-                      setMostrarModalProd(true); 
-                    }}
-                    className="text-indigo-600 font-bold hover:underline">
-                    Editar / Receta
-                  </button>
+                  <div className="flex justify-end gap-3 items-center">
+                    <button 
+                      onClick={() => { 
+                        setNuevoProd({ 
+                          producto_id: prod.producto_id, 
+                          nombre: prod.nombre, 
+                          precio_venta: prod.precio_venta, 
+                          recetas: prod.recetas || [] 
+                        }); 
+                        setMostrarModalProd(true); 
+                      }}
+                      className="text-indigo-600 font-bold hover:underline">
+                      Editar / Receta
+                    </button>
+                    <button 
+                      onClick={() => handleOcultarProducto(prod.producto_id)}
+                      className="text-red-500 hover:text-red-700 transition-colors"
+                      title="Dar de baja / Ocultar">
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -609,10 +688,6 @@ const GastosTab = () => {
   const [mostrarModal, setMostrarModal] = useState(false);
   const [nuevoGasto, setNuevoGasto] = useState({ concepto: '', monto: '', metodo_pago: 'Efectivo' });
 
-  useEffect(() => {
-    fetchGastos();
-  }, []);
-
   const fetchGastos = async () => {
     try {
       const res = await api.get('/gastos/');
@@ -621,6 +696,10 @@ const GastosTab = () => {
       console.error("Error al cargar gastos:", err);
     }
   };
+
+  useEffect(() => {
+    fetchGastos();
+  }, []);
 
   const handleRegistrarGasto = async (e) => {
     e.preventDefault();
