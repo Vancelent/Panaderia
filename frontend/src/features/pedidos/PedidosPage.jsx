@@ -60,7 +60,7 @@ export default function PedidosPage() {
     <div>
       <PageHeader
         title="Pedidos"
-        subtitle="Encargos y comandas. Se actualiza solo cada 30 segundos."
+        subtitle="Encargos y comandas. Se actualiza solo cada 15 segundos."
         actions={
           cobra && (
             <Button icon={Plus} onClick={() => setEditando('nuevo')}>

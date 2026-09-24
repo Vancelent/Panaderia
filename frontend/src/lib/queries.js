@@ -22,11 +22,23 @@ export const qk = {
   gastos: ['gastos'],
 }
 
+// Cada cuánto se refresca el stock solo, para ver lo que cargan otras pantallas
+// (p. ej. la producción del panadero en la caja). Solo mientras la pestaña está visible.
+export const REFRESCO_STOCK_MS = 8_000
+
 export const useProductos = (params) =>
-  useQuery({ queryKey: qk.productos(params), queryFn: () => get('/productos', params) })
+  useQuery({
+    queryKey: qk.productos(params),
+    queryFn: () => get('/productos', params),
+    refetchInterval: REFRESCO_STOCK_MS,
+  })
 
 export const useMateriasPrimas = () =>
-  useQuery({ queryKey: qk.materiasPrimas, queryFn: () => get('/materias-primas') })
+  useQuery({
+    queryKey: qk.materiasPrimas,
+    queryFn: () => get('/materias-primas'),
+    refetchInterval: REFRESCO_STOCK_MS,
+  })
 
 export const useReceta = (productoId) =>
   useQuery({
@@ -48,14 +60,14 @@ export const usePedidos = (params) =>
   useQuery({
     queryKey: qk.pedidos(params),
     queryFn: () => get('/pedidos', params),
-    refetchInterval: 30_000, // el tablero de comandas se mantiene al día solo
+    refetchInterval: 15_000, // el tablero de comandas se mantiene al día solo
   })
 
 export const usePendienteProduccion = () =>
   useQuery({
     queryKey: qk.pendienteProduccion,
     queryFn: () => get('/produccion/pendiente'),
-    refetchInterval: 60_000,
+    refetchInterval: 15_000,
   })
 
 export const useClientes = (buscar) =>

@@ -318,7 +318,8 @@ function Chip({ activo, children, ...props }) {
 function TarjetaProducto({ p, enCarrito, onClick }) {
   const agotado = p.stock_mostrador <= 0
   const lleno = enCarrito >= p.stock_mostrador
-  const nivel = nivelStock(p.stock_mostrador - enCarrito, p.stock_minimo)
+  const disponible = Math.max(0, p.stock_mostrador - enCarrito)
+  const nivel = nivelStock(disponible, p.stock_minimo)
   return (
     <button
       onClick={onClick}
@@ -338,7 +339,7 @@ function TarjetaProducto({ p, enCarrito, onClick }) {
       <div className="mt-2 flex flex-wrap items-end justify-between gap-x-2 gap-y-1">
         <p className="tabular text-lg font-extrabold text-brand-700 dark:text-brand-300">{fmtDinero(p.precio_venta)}</p>
         <Badge tone={agotado ? 'red' : nivel.tone === 'green' ? 'neutral' : nivel.tone}>
-          {agotado ? 'Agotado' : `${p.stock_mostrador - enCarrito} u`}
+          {agotado ? 'Agotado' : `${disponible} u`}
         </Badge>
       </div>
     </button>
