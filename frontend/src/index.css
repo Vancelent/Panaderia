@@ -2,7 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #f3f4f6;
-  /* Un gris muy claro y profesional */
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-stone-100 text-stone-900 antialiased dark:bg-stone-950 dark:text-stone-100;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-stone-900;
+  }
+  /* Sin flechitas en inputs numéricos: en táctil estorban */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-stone-800 dark:bg-stone-900;
+  }
+  .input {
+    @apply block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-stone-900 placeholder:text-stone-400
+      transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30
+      disabled:cursor-not-allowed disabled:opacity-60
+      dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100 dark:placeholder:text-stone-500;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-stone-700 dark:text-stone-300;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }

@@ -1,0 +1,262 @@
+import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeftRight, Banknote, CreditCard, LockKeyhole, Receipt } from 'lucide-react'
+import { Button } from '../../components/ui/Button'
+import { Field, Input } from '../../components/ui/Field'
+import { Modal } from '../../components/ui/Modal'
+import { Badge, EmptyState } from '../../components/ui/misc'
+import { Spinner } from '../../components/ui/Spinner'
+import { useToast } from '../../components/ui/toast'
+import { mensajeError, post } from '../../lib/api'
+import { fmtDinero, fmtHora } from '../../lib/format'
+import { qk, useVentasTurno } from '../../lib/queries'
+
+const METODOS = [
+  { value: 'Efectivo', icon: Banknote, tone: 'emerald' },
+  { value: 'Tarjeta', icon: CreditCard, tone: 'sky' },
+  { value: 'Transferencia', icon: ArrowLeftRight, tone: 'violet' },
+]
+
+/** Montos típicos con los que paga el cliente, a partir del total. */
+function sugerencias(total) {
+  const billetes = [500, 1000, 2000, 5000, 10000, 20000]
+  const res = new Set([Math.ceil(total)])
+  for (const b of billetes) {
+    const v = Math.ceil(total / b) * b
+    if (v > total) res.add(v)
+  }
+  return [...res].sort((a, b) => a - b).slice(0, 4)
+}
+
+export function CobroModal({ open, onClose, items, total, onVendido }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [metodo, setMetodo] = useState('Efectivo')
+  const [recibido, setRecibido] = useState('')
+
+  const vender = useMutation({
+    mutationFn: () =>
+      post('/ventas', {
+        metodo_pago: metodo,
+        items: items.map((i) => ({ producto_id: i.producto.id, cantidad: i.cantidad })),
+      }),
+    onSuccess: (venta) => {
+      const vuelto = metodo === 'Efectivo' && recibido ? Number(recibido) - venta.monto : 0
+      toast.ok(
+        `Venta #${venta.id} registrada · ${fmtDinero(venta.monto)}` +
+          (vuelto > 0 ? ` · Vuelto ${fmtDinero(vuelto)}` : ''),
+      )
+      qc.invalidateQueries({ queryKey: ['productos'] })
+      qc.invalidateQueries({ queryKey: qk.ventasTurno })
+      setRecibido('')
+      setMetodo('Efectivo')
+      onVendido()
+    },
+    onError: (e) => {
+      toast.error(mensajeError(e))
+      // El stock pudo cambiar en otra caja: refrescamos la grilla
+      qc.invalidateQueries({ queryKey: ['productos'] })
+    },
+  })
+
+  const recibidoNum = Number(recibido) || 0
+  const vuelto = recibidoNum - total
+  const faltaEfectivo = metodo === 'Efectivo' && recibido !== '' && vuelto < 0
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Cobrar"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Volver
+          </Button>
+          <Button
+            variant="success"
+            size="lg"
+            loading={vender.isPending}
+            disabled={faltaEfectivo}
+            onClick={() => vender.mutate()}
+          >
+            Confirmar {fmtDinero(total)}
+          </Button>
+        </>
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!faltaEfectivo) vender.mutate()
+        }}
+      >
+        <div className="mb-5 rounded-2xl bg-stone-100 p-4 text-center dark:bg-stone-800">
+          <p className="text-sm text-stone-500">Total a cobrar</p>
+          <p className="tabular text-4xl font-extrabold tracking-tight">{fmtDinero(total)}</p>
+        </div>
+        <div className="mb-5 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Método de pago">
+          {METODOS.map(({ value, icon: Icon }) => (
+            <button
+              type="button"
+              key={value}
+              role="radio"
+              aria-checked={metodo === value}
+              onClick={() => setMetodo(value)}
+              className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 p-3 text-sm font-semibold transition ${
+                metodo === value
+                  ? 'border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-950/50 dark:text-brand-200'
+                  : 'border-stone-200 hover:border-stone-300 dark:border-stone-700'
+              }`}
+            >
+              <Icon className="h-6 w-6" />
+              {value}
+            </button>
+          ))}
+        </div>
+        {metodo === 'Efectivo' && (
+          <div className="space-y-3">
+            <Field label="Paga con">
+              {(id) => (
+                <Input
+                  id={id}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  className="tabular h-12 text-lg font-bold"
+                  placeholder="Opcional, para calcular el vuelto"
+                  value={recibido}
+                  onChange={(e) => setRecibido(e.target.value)}
+                />
+              )}
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              {sugerencias(total).map((v) => (
+                <Button key={v} type="button" variant="soft" size="sm" onClick={() => setRecibido(String(v))}>
+                  {fmtDinero(v)}
+                </Button>
+              ))}
+            </div>
+            {recibido !== '' && (
+              <div
+                className={`flex items-center justify-between rounded-2xl p-4 ${
+                  vuelto < 0
+                    ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                    : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                }`}
+              >
+                <span className="font-semibold">{vuelto < 0 ? 'Falta' : 'Vuelto'}</span>
+                <span className="tabular text-2xl font-extrabold">{fmtDinero(Math.abs(vuelto))}</span>
+              </div>
+            )}
+          </div>
+        )}
+        <button type="submit" hidden />
+      </form>
+    </Modal>
+  )
+}
+
+export function CierreModal({ open, onClose, carritoConItems }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [monto, setMonto] = useState('')
+  const cerrar = useMutation({
+    mutationFn: () => post('/turnos/actual/cierre', { monto_declarado: Number(monto) }),
+    onSuccess: () => {
+      toast.ok('Turno cerrado. ¡Gracias!')
+      setMonto('')
+      onClose()
+      qc.setQueryData(qk.turnoActual, null)
+      qc.removeQueries({ queryKey: qk.ventasTurno })
+    },
+    onError: (e) => toast.error(mensajeError(e)),
+  })
+  const valido = monto !== '' && Number(monto) >= 0
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="sm"
+      title="Cerrar caja"
+      description="Contá el efectivo del cajón e ingresá el total."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button variant="danger" icon={LockKeyhole} loading={cerrar.isPending} disabled={!valido} onClick={() => cerrar.mutate()}>
+            Cerrar turno
+          </Button>
+        </>
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (valido) cerrar.mutate()
+        }}
+        className="space-y-4"
+      >
+        {carritoConItems && (
+          <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            Hay productos en el ticket sin cobrar. Si cerrás, se descartan.
+          </p>
+        )}
+        <Field label="Efectivo contado" hint="Incluí el fondo inicial. Tarjetas y transferencias no van.">
+          {(id) => (
+            <Input
+              id={id}
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              className="tabular h-14 text-center text-2xl font-bold"
+              value={monto}
+              onChange={(e) => setMonto(e.target.value)}
+            />
+          )}
+        </Field>
+        <p className="text-xs text-stone-500">
+          El sistema registra el arqueo y la encargada lo revisa. No se muestra la diferencia en caja.
+        </p>
+        <button type="submit" hidden />
+      </form>
+    </Modal>
+  )
+}
+
+export function VentasTurnoModal({ open, onClose }) {
+  const { data, isLoading } = useVentasTurno(open)
+  return (
+    <Modal open={open} onClose={onClose} title="Últimas ventas del turno">
+      {isLoading ? (
+        <div className="grid place-items-center py-10">
+          <Spinner />
+        </div>
+      ) : !data?.length ? (
+        <EmptyState icon={Receipt} title="Todavía no hay ventas en este turno" />
+      ) : (
+        <ul className="divide-y divide-stone-100 dark:divide-stone-800">
+          {data.map((v) => (
+            <li key={v.id} className="py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">#{v.id}</span>
+                  <span className="text-sm text-stone-500">{fmtHora(v.fecha)}</span>
+                  <Badge tone={v.metodo_pago === 'Efectivo' ? 'green' : 'blue'}>{v.metodo_pago}</Badge>
+                </div>
+                <span className="tabular font-bold">{fmtDinero(v.monto)}</span>
+              </div>
+              <p className="mt-1 text-sm text-stone-500">
+                {v.detalles.map((d) => `${d.cantidad}× ${d.nombre}`).join(', ')}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  )
+}

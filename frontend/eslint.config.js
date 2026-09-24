@@ -17,5 +17,9 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // `const { [id]: _, ...resto } = obj` es la forma idiomática de quitar una clave
+      'no-unused-vars': ['error', { varsIgnorePattern: '^_', ignoreRestSiblings: true }],
+    },
   },
 ])
