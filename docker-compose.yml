@@ -1,35 +1,42 @@
-version: '3.8'
-
 services:
-  web:
-    build: .
-    # Exponemos el puerto 8000 en tu máquina al 8000 del contenedor
-    ports:
-      - "8000:8000"
-    # Volumen montado para 'hot-reload'. Todo lo que cambies en c:\...\Panaderia se refleja adentro.
-    volumes:
-      - .:/app
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/erp_panaderia
-    depends_on:
-      - db
-    command: [ "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
-
   db:
     image: postgres:15
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: erp_panaderia
+      POSTGRES_USER: ${POSTGRES_USER:?Definí POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Definí POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_panaderia}
+    # Solo accesible desde esta máquina (para herramientas locales), no desde la red.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-erp_panaderia}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Hot-reload en desarrollo
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
 
   frontend:
-    build:
-      context: ./frontend
+    build: ./frontend
+    environment:
+      # Vite reenvía /api al backend: el navegador ve un único origen (cookies SameSite=Strict)
+      VITE_API_PROXY: http://web:8000
     ports:
       - "5173:5173"
     volumes:
@@ -39,6 +46,4 @@ services:
       - web
 
 volumes:
-  # Declaración del volumen nombrado
   postgres_data:
-
