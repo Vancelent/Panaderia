@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado** | Borrador v2 para revisión |
+| **Estado** | Borrador v3 para revisión |
 | **Fecha** | 2026-09-30 |
 | **Base** | Rama `modernizacion` (commit `fc4b34b`) · ver [`arquitectura.md`](arquitectura.md) |
 | **Alcance** | Backend FastAPI, infraestructura, cliente web (caja y contabilidad) y app móvil universal |
@@ -13,6 +13,7 @@
 |---|---|
 | v1 | Reparto matutino, despliegue con Cloudflare y app móvil para repartidor y monitoreo |
 | v2 | **Autenticación híbrida** (Google + PIN de caja) · **caja orientada a teclado** · **puntos de entrega** con descuentos por local en el módulo contable · **cuenta corriente simple, sin límite de crédito** · **app móvil universal** · **infraestructura low-cost** (VPS chico o Proxmox) · **ruta sugerida no obligatoria y registro del recorrido real** |
+| v3 | **Medios de pago preparados** para tarjeta y QR con pagos mixtos (`ventas_pagos`) · **"Pasar a día anterior" como ajuste manual** de la encargada, auditado · **traza GPS obligatoria** con **retención de 90 días** por particiones mensuales · despliegue principal en **VPS con dominio público** (Google siempre disponible) · preguntas P4–P6 resueltas |
 
 ## Índice
 
@@ -45,7 +46,7 @@ Router → Service → Model, los tipos `Dinero`/`Cantidad`/`CostoUnitario` y el
 | D2 | La reserva es un contador `productos.stock_reservado` protegido por el **mismo bloqueo de fila** que ya usa la caja | Tabla de reservas + `SUM()` en cada venta | Reutiliza `bloquear_productos` sin agregar locks ni consultas a la venta de mostrador |
 | D3 | **Jerarquía global de bloqueos** (idempotencia → turno → hoja → entregas → cliente → numerador → productos → insumos) | Bloqueos ad hoc por servicio | Previene deadlocks por construcción (§3.4) |
 | D4 | Cada entrega cobrada es una **`Venta`** dentro de un **turno de reparto** y se rinde con arqueo | Tabla de cobros paralela | Reutiliza arqueo, tablero financiero y reportes existentes |
-| D5 | **Cuenta corriente simple**: cargos, pagos, notas de crédito y ajustes, **sin límite de crédito** | Consignación · límite de crédito bloqueante | Así trabaja hoy la panadería. El pan se vence en el día: la devolución es nota de crédito (§4) |
+| D5 | **Cuenta corriente simple**: cargos, pagos, notas de crédito y ajustes, **sin límite de crédito** | Consignación · límite de crédito bloqueante | Así trabaja hoy la panadería. El pan se vence en el día: la devolución es nota de crédito (§4.4) |
 | D6 | **Cloudflare Tunnel** + **Caddy** sirviendo el build estático y `/api` en el **mismo origen** | Nginx/Caddy expuesto con Origin CA | No requiere IP pública ni abrir puertos, y la IP del origen queda oculta |
 | D7 | Cookies con prefijo **`__Host-`** y `COOKIE_DOMAIN` vacío | Cookie con `Domain=.dominio.com` | Bloquea *cookie tossing* desde subdominios, el punto débil del CSRF por doble envío |
 | D8 | App **Expo (React Native)** | PWA | Almacenamiento seguro (Keychain/Keystore), offline confiable en iOS, GPS e impresión Bluetooth |
@@ -54,11 +55,13 @@ Router → Service → Model, los tipos `Dinero`/`Cantidad`/`CostoUnitario` y el
 | D11 | **Google (OpenID Connect)** con flujo *authorization code + PKCE* resuelto en el servidor; solo entran cuentas **vinculadas previamente** por un admin | Alta automática de cualquier cuenta de Google | Nadie obtiene acceso solo por tener Gmail; el rol lo sigue decidiendo el sistema (§2) |
 | D12 | **PIN solo en equipos de caja registrados**, con sesión de alcance limitado (`amr=pin`) y **reautenticación** para gestión | PIN válido desde cualquier equipo | Un PIN de 4–6 dígitos es cómodo pero débil; el equipo registrado es el segundo factor (§2.3) |
 | D13 | Caja **orientada a teclado** con un **controlador de caja** puro compartido entre la vista de teclado, la táctil y la app móvil | Dos implementaciones separadas | Una sola lógica de ticket; cambiar de dispositivo es cambiar la vista (§6) |
-| D14 | **Descuentos por punto de entrega** (general o por producto) y el **pan del día anterior como variante del producto** con stock propio | Descuento manual en cada entrega | El precio se congela al confirmar la hoja y es auditable (§4.2) |
+| D14 | **Descuentos por punto de entrega** (general o por producto) y el **pan del día anterior como variante del producto** con stock propio, que **la encargada pasa a mano** | Descuento manual en cada entrega · conversión automática al abrir el día | El precio se congela al confirmar la hoja; la conversión la decide una persona y queda auditada (§4.2, §4.3) |
 | D15 | **App móvil universal** que replica los módulos de la PC sobre la misma API, compartiendo dominio y consultas con la web | App solo para el repartidor · UI única con `react-native-web` | Paridad sin duplicar reglas de negocio; cada plataforma conserva su UI (§8) |
 | D16 | **Un solo host liviano**: 4 contenedores (Postgres afinado, API con 1 worker, Caddy, `cloudflared` opcional) con límites de RAM/CPU | Redis, colas, stack de monitoreo, Node en producción | Entra en un VPS de 1 GB o un contenedor LXC de Proxmox (§7) |
 | D17 | La **ruta es una sugerencia**: el repartidor puede entregar en cualquier orden | Orden obligatorio | La calle manda (tráfico, locales cerrados); el control se hace con el recorrido real (§5) |
-| D18 | Se registra el **recorrido real** (GPS durante la ruta + posición en cada evento) como datos de solo agregado | Solo registrar la hora de cada entrega | El dueño ve ruta sugerida vs. real, desvíos y tiempos (§5.2) |
+| D18 | El **recorrido real es obligatorio**: sin permiso de ubicación no se sale a la ruta, y los cortes de GPS quedan registrados como eventos | Registro opcional · solo registrar la hora de cada entrega | El dueño ve ruta sugerida vs. real, desvíos y tiempos; un hueco en la traza también es información (§5.2) |
+| D19 | **Pagos en tabla propia** (`ventas_pagos`): una venta puede tener varios medios; `MetodoPagoEnum` suma `QR` y `CUENTA_CORRIENTE` | Una sola columna `metodo_pago` por venta | Permite pago mixto hoy y tarjeta/QR integrados mañana sin volver a migrar ventas (§4.5) |
+| D20 | **Retención de 90 días de la traza GPS** con **particiones mensuales** de PostgreSQL que se eliminan enteras | `DELETE` nocturno de filas viejas | Borrar una partición es instantáneo y no deja espacio muerto para el autovacuum de un VPS chico (§5.4) |
 
 ---
 
@@ -202,8 +205,10 @@ el primer login con Google cuyo `email` coincida y tenga `email_verified=true` c
 `identidades_externas (proveedor, sub)`. Desde ahí se busca por `sub`, así que un cambio de email en Google
 no rompe el acceso. Si se quiere, `GOOGLE_HOSTED_DOMAIN` restringe a un dominio de Google Workspace.
 
-**Requisito operativo:** Google exige una URL de retorno HTTPS pública. Con el túnel de Cloudflare (§7)
-está resuelto; en una instalación solo de red local, Google no está disponible y se usa contraseña o PIN.
+**Requisito operativo:** Google exige una URL de retorno HTTPS pública. El despliegue base es un **VPS con
+dominio propio detrás de Cloudflare** (§7), así que el login con Google está **siempre habilitado** en
+producción (`https://<dominio>/api/v1/auth/google/callback`). La contraseña queda como acceso de
+emergencia de los admins y el PIN sigue siendo local a la caja: si Google o Internet fallan, el mostrador sigue operando.
 
 ### 2.3 PIN en la caja física
 
@@ -382,7 +387,8 @@ Cambios en tablas existentes:
 | `turnos` | `tipo` enum `MOSTRADOR \| REPARTO`; el índice único parcial pasa a `(usuario_id, tipo)` | La rendición del reparto reutiliza el arqueo ciego |
 | `ventas` | `origen` enum `MOSTRADOR \| PEDIDO \| REPARTO` y `punto_entrega_id` FK nullable | Filtrar el tablero y la facturación matutina por canal |
 | `clientes` | `saldo_cuenta_corriente Dinero DEFAULT 0` y `cuit` | Saldo cacheado del libro de movimientos. **Sin límite de crédito** (D5) |
-| `MetodoPagoEnum` | nuevo valor `CUENTA_CORRIENTE` | La venta a cuenta no suma al efectivo esperado del arqueo |
+| `MetodoPagoEnum` | nuevos valores `QR` y `CUENTA_CORRIENTE` (`EFECTIVO`, `TARJETA` y `TRANSFERENCIA` ya existen) | Preparado para medios futuros; la parte a cuenta no suma al efectivo esperado del arqueo |
+| `ventas_pagos` (nueva) | Uno o más pagos por venta (§4.5) | Pago mixto y referencias de posnet/QR sin tocar `ventas` de nuevo |
 | `RolEnum` | nuevo valor `REPARTIDOR` | Perfil de la app móvil |
 
 Tablas de soporte: `numeradores(tipo PK, ultimo_numero)` para numerar remitos sin huecos, y
@@ -401,7 +407,7 @@ semántica de "validar todo y después modificar":
 | `liberar_reserva(productos, cantidades)` | Reabrir o anular hoja | `stock_reservado -= cant` |
 | `cargar_reserva(productos, reservado, cargado)` | Carga en vehículo | `stock_mostrador -= cargado`; `stock_reservado -= reservado`. Si `cargado < reservado`, la diferencia queda disponible para la caja |
 | `reingresar_devolucion(productos, cantidades)` | Rendición, devolución apta | `stock_mostrador += cant` en la **variante "día anterior"** si el producto la tiene; si no, en el producto |
-| `pasar_a_dia_anterior(base, variante, cantidad)` | Cierre del día | `base.stock_mostrador -= cant`; `variante.stock_mostrador += cant`. Bloquea ambas filas ordenadas por id |
+| `pasar_a_dia_anterior(pares)` | Ajuste **manual** de la encargada (§4.3) | Por cada par: `base.stock_mostrador -= cant` (validando contra el disponible) y `variante.stock_mostrador += cant`. Bloquea todas las filas involucradas en un solo `bloquear_productos()`, ordenadas por id |
 
 Las devoluciones no aptas se registran como `Merma` con motivo `"Devolución de reparto"`, así la merma
 valorizada del tablero las incluye.
@@ -438,7 +444,7 @@ Quedan fuera de la jerarquía, porque no se bloquean: `recorrido_puntos` y `entr
 | Confirmar entrega | 1 → 2 (share) → 3 (share) → 4 → 5 → 6 |
 | Pago de cuenta corriente | 1 → 2 (share, si es efectivo en ruta) → 5 |
 | Rendición | 2 (update) → 3 → 4 → 7 |
-| Pasar a día anterior | 7 (dos filas, ordenadas) |
+| Pasar a día anterior | 7 (todas las filas del lote, ordenadas) |
 
 Cada operación es **una única transacción** del servicio (un `db.commit()` al final, rollback automático
 por `get_db` ante cualquier excepción), igual que `crear_venta` hoy.
@@ -463,7 +469,7 @@ sequenceDiagram
     SVC->>DB: turno FOR SHARE · hoja FOR SHARE · entrega FOR UPDATE
     SVC->>SVC: valida estado y cantidades ≤ cargado − ya entregado
     SVC->>DB: cliente FOR UPDATE · numerador FOR UPDATE
-    SVC->>DB: INSERT venta (turno de reparto, origen REPARTO, precios congelados)
+    SVC->>DB: INSERT venta (turno de reparto, origen REPARTO, precios congelados) + ventas_pagos
     SVC->>DB: INSERT movimiento CARGO y/o PAGO · UPDATE saldo del cliente
     SVC->>DB: UPDATE entrega (estado, remito, orden_real, posición) · INSERT evento
     SVC->>DB: UPDATE operaciones_idempotentes.respuesta
@@ -501,7 +507,8 @@ Los puntos de entrega y la cuenta corriente pasan al módulo contable (§4.4). A
 Las rutas de acción usan sustantivos (`/confirmacion`, `/carga`) igual que `/turnos/actual/cierre` y
 `/pedidos/{id}/entrega`. Códigos de error nuevos, en el formato unificado:
 `stock_insuficiente` (reutilizado), `transicion_invalida` (reutilizado), `hoja_cerrada`,
-`cantidad_excede_carga`, `operacion_en_curso`, `reautenticacion_requerida`.
+`cantidad_excede_carga`, `operacion_en_curso`, `reautenticacion_requerida`, `hoja_sin_ubicacion` (§5.2)
+y `pagos_no_cuadran` (§4.5).
 
 ### 3.7 Contratos Pydantic v2
 
@@ -543,13 +550,14 @@ class ItemEntregaIn(BaseModel):
     producto_id: int
     cantidad_entregada: int = Field(ge=0, le=100_000)
 
-class CobroIn(BaseModel):
-    metodo_pago: MetodoPagoEnum             # EFECTIVO | TRANSFERENCIA | CUENTA_CORRIENTE
-    monto: DineroNoNegativo                 # 0 si queda todo a cuenta
+class PagoIn(BaseModel):                    # compartido con la caja (§4.5)
+    metodo_pago: MetodoPagoEnum             # EFECTIVO | TRANSFERENCIA | TARJETA | QR (no CUENTA_CORRIENTE)
+    monto: DineroPositivo
+    referencia: Texto | None = None         # nº de transferencia, cupón, id de QR
 
 class ConfirmacionEntregaIn(OperacionMovil):
     items: list[ItemEntregaIn] = Field(min_length=1, max_length=100)
-    cobro: CobroIn
+    pagos: list[PagoIn] = Field(default_factory=list, max_length=5)   # lo no pagado queda a cuenta corriente
     recibio_nombre: Texto | None = None
 
 class RecorridoLoteIn(BaseModel):
@@ -651,11 +659,44 @@ Para que el descuento del día anterior sea controlable, el pan que sobra se man
 producto con stock propio**: por ejemplo, "Pan francés (día anterior)" con `producto_base_id` apuntando a
 "Pan francés".
 
-- Al cerrar el día, la encargada ejecuta **"Pasar a día anterior"** desde Stock: mueve unidades del producto
-  base a la variante en una sola transacción (§3.3).
+- La variante tiene su propio precio de lista (en general, el del producto con descuento) y puede tener
+  además descuentos por punto de entrega como cualquier producto.
+- La caja la vende igual que cualquier otro producto, con su código propio (§6).
 - Las devoluciones aptas del reparto reingresan directamente a la variante.
-- La variante tiene su propio precio de lista y puede tener descuentos por punto como cualquier producto.
-- La caja la vende igual que cualquier otro producto (con su código propio, §6).
+
+**La conversión es un ajuste manual de la encargada, nunca automático.** El sistema no sabe qué sobrante
+sigue en condiciones de venderse; lo decide una persona mirando la bandeja.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ENC as Encargada (Stock → Pasar a día anterior)
+    participant API as POST /stock/dia-anterior
+    participant SVC as services.stock
+    participant DB as PostgreSQL
+
+    ENC->>ENC: ve los productos con variante y su stock actual
+    ENC->>API: [{producto_id, cantidad}, …] + motivo opcional
+    API->>SVC: pasar_a_dia_anterior()
+    SVC->>DB: bloquear_productos(bases + variantes) ORDER BY id
+    SVC->>SVC: valida cantidad ≤ stock_mostrador − stock_reservado de cada base
+    SVC->>DB: base −= cant · variante += cant
+    SVC->>DB: INSERT conversiones_dia_anterior (una fila por producto, usuario, fecha)
+    SVC-->>ENC: 200 con los stocks resultantes
+```
+
+| Aspecto | Diseño |
+|---|---|
+| Pantalla | Stock → **Pasar a día anterior**: lista de productos que tienen variante, con el stock actual del base; la encargada completa cantidades (por defecto 0) y confirma. Funciona igual en la PC y en la app |
+| Quién | Rol Gestión (Admin o Encargada). No requiere reautenticación: no cambia precios, solo mueve stock ya existente, y queda auditado |
+| Validación | No puede pasar más de lo **disponible** (no toca lo reservado para el reparto). Todo o nada, en una transacción (nivel 7 de la jerarquía) |
+| Auditoría | Tabla `conversiones_dia_anterior`: `id`, `producto_base_id`, `variante_id`, `cantidad INT > 0`, `usuario_id`, `fecha`, `motivo`, `revierte_id FK NULL` |
+| Corrección | "Deshacer" crea una conversión inversa que referencia a la original (`revierte_id`), solo el mismo día y solo sobre el stock que siga disponible en la variante. Nada se borra |
+| Reportes | El tablero muestra por día cuántas unidades pasaron a día anterior y cuánto se vendió de las variantes |
+
+Endpoints: `GET /stock/dia-anterior` (productos con variante y stock) · `POST /stock/dia-anterior`
+(conversión) · `POST /stock/dia-anterior/{id}/reversion`. La variante se crea desde Productos
+(`producto_base_id`), y se pide reautenticación porque fija un precio.
 
 Así el sistema distingue el pan fresco del día anterior en stock, ventas y reportes, sin reglas especiales en la caja.
 
@@ -668,7 +709,8 @@ Así el sistema distingue el pan fresco del día anterior en stock, ventas y rep
 | `punto_entrega_id` | FK NULL (qué sucursal generó el movimiento) |
 | `tipo` | enum `CARGO \| PAGO \| NOTA_CREDITO \| AJUSTE` |
 | `importe` | `Dinero` con signo: positivo aumenta la deuda, negativo la reduce. `CHECK (importe <> 0)` |
-| `metodo_pago` | enum NULL (solo `PAGO`: `EFECTIVO \| TRANSFERENCIA`) |
+| `metodo_pago` | `MetodoPagoEnum` NULL (solo en `PAGO`; hoy `EFECTIVO \| TRANSFERENCIA`, y `TARJETA \| QR` cuando se habiliten, §4.5) |
+| `referencia` | String(120) NULL (nº de transferencia, cupón, id de QR) |
 | `entrega_id` / `turno_id` | FK NULL |
 | `operacion_id` | UUID UNIQUE NULL (idempotencia desde la app) |
 | `usuario_id`, `fecha`, `observacion` | |
@@ -678,8 +720,9 @@ Así el sistema distingue el pan fresco del día anterior en stock, ventas y rep
 - **Saldo cacheado** en `clientes.saldo_cuenta_corriente`, actualizado bajo `FOR UPDATE` del cliente
   (nivel 5 de la jerarquía). Una verificación periódica compara el saldo con `SUM(importe)` y alerta ante diferencias.
 - **Sin límite de crédito**: el sistema no bloquea entregas por deuda. El saldo se muestra en la app del
-  repartidor y en la hoja de ruta para que la decisión sea humana. Si en el futuro se agregan tarjetas,
-  posnet o tickets, se suman valores a `metodo_pago` sin cambiar el modelo.
+  repartidor y en la hoja de ruta para que la decisión sea humana.
+- **Sin integraciones de pago todavía**: la panadería no tiene posnet ni QR. El modelo ya los contempla
+  (§4.5) para que habilitarlos no requiera tocar la cuenta corriente.
 - **Pagos en efectivo en la ruta** llevan el `turno_id` del turno de reparto y **suman al efectivo esperado**
   en la rendición, igual que las ventas en efectivo.
 
@@ -694,6 +737,53 @@ Endpoints del módulo contable (rol Gestión, salvo indicación):
 | `POST /contabilidad/clientes/{id}/pagos` | Pago (Gestión o Repartidor; idempotente) |
 | `POST /contabilidad/clientes/{id}/notas-credito` · `/ajustes` | Correcciones (reautenticación) |
 | `GET /contabilidad/saldos` | Saldos de todos los clientes con cuenta corriente |
+
+### 4.5 Medios de pago preparados para el futuro (D19)
+
+Hoy `ventas.metodo_pago` admite **un solo medio por venta** y el arqueo agrupa por esa columna. Eso impide
+el pago mixto ("pagó una parte en efectivo y el resto por transferencia") y no tiene dónde guardar el
+número de cupón o de operación de un posnet o un QR. Se agrega una tabla de pagos, sin integrar ningún
+proveedor todavía:
+
+```mermaid
+erDiagram
+    VENTAS ||--|{ VENTAS_PAGOS : "se paga con"
+    TURNOS ||--o{ VENTAS : ""
+    VENTAS_PAGOS {
+        int id PK
+        int venta_id FK
+        enum metodo_pago "EFECTIVO | TRANSFERENCIA | TARJETA | QR | CUENTA_CORRIENTE"
+        numeric monto "Dinero, > 0"
+        string referencia "NULL · cupón, nº de operación, id de QR"
+        enum estado "APROBADO (hoy siempre) | PENDIENTE | RECHAZADO"
+        string proveedor "NULL · p. ej. el procesador del posnet"
+        datetime fecha
+    }
+```
+
+| Regla | Detalle |
+|---|---|
+| Suma | `SUM(ventas_pagos.monto) = ventas.monto` para cada venta (validado en el servicio; en el reparto, la parte no pagada se registra como pago `CUENTA_CORRIENTE`) |
+| Vuelto | Se registra el monto **neto** cobrado; el vuelto lo calcula la pantalla y no se guarda |
+| Arqueo | Efectivo esperado = fondo inicial + `SUM(monto)` de pagos `EFECTIVO` aprobados del turno + pagos de cuenta corriente en efectivo del turno. Tarjeta, QR y transferencia se informan aparte, como hoy `ventas_otros_medios` |
+| Estado | Hoy todo pago se crea `APROBADO`. `PENDIENTE`/`RECHAZADO` quedan listos para una integración futura con posnet o QR, donde la aprobación llega después |
+| Compatibilidad | `ventas.metodo_pago` se mantiene como **medio principal** (el de mayor monto) para no romper reportes ni el frontend actual; la migración crea un pago por cada venta existente con su método y monto |
+| Medios habilitados | `MEDIOS_PAGO_HABILITADOS` (variable de entorno, hoy `EFECTIVO,TRANSFERENCIA,TARJETA`) define qué botones muestra la caja. `QR` existe en el enum pero no se muestra hasta habilitarlo |
+
+Contrato de la caja (extiende `VentaCreate` sin romperlo):
+
+```python
+class VentaCreate(BaseModel):
+    metodo_pago: MetodoPagoEnum = MetodoPagoEnum.EFECTIVO   # se mantiene: un solo medio por el total
+    pagos: list[PagoIn] | None = Field(default=None, max_length=5)  # nuevo: pago mixto
+    cliente_id: int | None = None
+    items: list[ItemVenta] = Field(min_length=1, max_length=200)
+    # Si llega `pagos`, su suma debe ser igual al total calculado por el servidor
+    # (error `pagos_no_cuadran`). Si no llega, se crea un único pago con `metodo_pago`.
+```
+
+Integrar un posnet o un QR en el futuro implica solo un servicio nuevo que cree el pago `PENDIENTE` y lo
+pase a `APROBADO` o `RECHAZADO`. No cambia la venta, la cuenta corriente ni el arqueo.
 
 ---
 
@@ -720,16 +810,29 @@ Endpoints del módulo contable (rol Gestión, salvo indicación):
 | **Orden real** | `entregas.orden_real`, según el orden en que se confirmaron |
 | **Distancia real** | Al rendir, se suma la traza y se guarda en `hojas_ruta.distancia_real_km` |
 
-Tabla `recorrido_puntos`: `id BIGINT PK`, `hoja_id FK`, `latitud`/`longitud Numeric(9,6)`,
+**El registro es obligatorio (D18):**
+
+| Situación | Comportamiento |
+|---|---|
+| Sin permiso de ubicación "siempre" (o "mientras se usa" + servicio en primer plano en Android) | La app **no permite pasar la hoja a `EN_RUTA`** ni confirmar entregas; muestra cómo otorgar el permiso |
+| GPS apagado o sin señal durante la ruta | La app sigue funcionando (no se puede dejar mercadería sin entregar por eso), pero registra un evento `GPS_SIN_SEÑAL` con el inicio y el fin del hueco |
+| Permiso revocado en plena ruta | Evento `PERMISO_REVOCADO`; las entregas siguientes quedan marcadas "sin posición" y la app insiste en recuperar el permiso |
+| App cerrada a la fuerza | Al volver a abrirse, el hueco entre el último punto y el nuevo se registra como `TRAZA_INTERRUMPIDA` |
+
+Estos eventos se guardan en `recorrido_eventos` (`hoja_id`, `tipo`, `desde`, `hasta`, `registrado_en_dispositivo`) y
+el dueño los ve sobre el mapa como tramos sin traza. El servidor también rechaza con
+`409 hoja_sin_ubicacion` el paso a `EN_RUTA` si el dispositivo no informa el permiso concedido.
+
+Tabla `recorrido_puntos` (particionada por mes, §5.4): `id BIGINT`, `hoja_id FK`, `latitud`/`longitud Numeric(9,6)`,
 `precision_m Numeric(7,1)`, `registrado_en_dispositivo`, `recibido_en_servidor`, `lote_id UUID`.
-Índice `(hoja_id, registrado_en_dispositivo)`.
+PK `(id, registrado_en_dispositivo)` · índice `(hoja_id, registrado_en_dispositivo)`.
 
 - **Envío por lotes**: los puntos se guardan en la base local de la app y viajan en lotes (cada ~2 min o al
   recuperar señal) por la misma cola de salida. `lote_id` evita duplicados si se reintenta.
 - **Solo agregado y sin bloqueos**: insertar puntos no toca filas compartidas, así que no afecta a la caja
   ni a las entregas (§1.3).
-- **Volumen**: un punto por minuto durante 4 h son ~240 filas por hoja. Con retención de **90 días** y un
-  repartidor, son unas 22.000 filas: despreciable para PostgreSQL. Un proceso nocturno borra lo vencido.
+- **Volumen**: un punto por minuto durante 4 h son ~240 filas por hoja. Con la retención de **90 días**
+  (§5.4) y un repartidor, son unas 22.000 filas; con cinco repartidores, ~110.000. Despreciable para PostgreSQL.
 - **Privacidad**: el registro **solo** está activo con una hoja `EN_RUTA` y se corta al rendir. La app lo
   indica con una notificación fija ("Registrando recorrido de reparto"). Conviene informar a los repartidores
   por escrito que el recorrido del reparto se registra.
@@ -744,6 +847,33 @@ Tabla `recorrido_puntos`: `id BIGINT PK`, `hoja_id FK`, `latitud`/`longitud Nume
 - indicadores: distancia sugerida vs. real, duración total, entregas fuera de orden y **entregas
   confirmadas lejos del punto** (a más de 300 m de la ubicación cargada, configurable). Este último es
   una alerta, no un bloqueo: el GPS de un celular puede fallar dentro de un edificio.
+- los **huecos de traza** (`recorrido_eventos`) como tramos punteados.
+
+### 5.4 Retención de 90 días (D20)
+
+| Dato | Retención | Motivo |
+|---|---|---|
+| Traza cruda (`recorrido_puntos`) | **90 días** (`RETENCION_GPS_DIAS=90`) | Es el dato voluminoso y el más sensible |
+| Huecos de traza (`recorrido_eventos`) | 90 días, igual que la traza | Solo tienen sentido junto a ella |
+| Posición y hora de cada entrega (`entregas`, `entregas_eventos`) | Mientras exista la entrega | Es el respaldo de la venta y del movimiento de cuenta corriente |
+| Resumen de la hoja (`distancia_real_km`, `orden_real`, desvíos) | Permanente | Permite comparar meses sin guardar la traza |
+
+**Mecanismo: particiones mensuales.** `recorrido_puntos` se declara `PARTITION BY RANGE (registrado_en_dispositivo)`
+con una partición por mes (`recorrido_puntos_2026_10`, …):
+
+- **Borrar lo vencido es eliminar particiones enteras** (`DROP TABLE` de la partición). Es instantáneo y
+  no deja filas muertas que el autovacuum tenga que limpiar; en un VPS de 1 vCPU esto importa más que el volumen.
+- El borde (el mes que tiene días de más y de menos de 90) se resuelve con un `DELETE … WHERE registrado_en_dispositivo < now() - interval '90 days'`
+  acotado a esa única partición.
+- **Mantenimiento**: un `cron` del host ejecuta a diario `docker compose exec api python -m app.cli mantenimiento-gps`,
+  que crea la partición del mes siguiente si no existe, elimina las vencidas y hace el borrado del borde.
+  No hace falta `pg_partman` ni otra extensión.
+- La clave primaria pasa a ser `(id, registrado_en_dispositivo)`, porque PostgreSQL exige que incluya la
+  clave de partición. Nadie referencia estas filas con FK, así que no afecta al resto del modelo.
+- Los puntos que llegan con una fecha fuera de rango (reloj del celular muy desfasado) caen en una
+  partición `DEFAULT` y se revisan en el mantenimiento. Nunca se pierde una sincronización por eso.
+- En los tests con SQLite la tabla es normal: el particionado se declara con `postgresql_partition_by`,
+  que SQLite ignora, y los tests de retención corren solo contra PostgreSQL.
 
 ---
 
@@ -768,8 +898,9 @@ poder usarse después con pantalla táctil y desde el celular.
 | `Tab` / `Shift+Tab` | Buscador → resultados → ticket → cobrar |
 | `+` / `-` / `Supr` | Sobre la línea seleccionada del ticket: sumar, restar, quitar |
 | `F9` | Cobrar |
-| En el cobro: `1` `2` `3` | Efectivo / Transferencia / Cuenta corriente |
-| En el cobro: número + `Enter` | Monto recibido → muestra el vuelto y confirma |
+| En el cobro: `1` … `5` | Efectivo / Transferencia / Tarjeta / QR / Cuenta corriente. Solo aparecen los medios habilitados (`MEDIOS_PAGO_HABILITADOS`, §4.5); cuenta corriente, solo si la venta tiene cliente |
+| En el cobro: número + `Enter` | Monto de ese medio. Si cubre el total, muestra el vuelto (efectivo) y confirma |
+| En el cobro: `Tab` después de un monto parcial | **Pago mixto**: agrega otro medio por el saldo restante (p. ej. `1` 5000 `Tab` `2` `Enter`) |
 | `Esc` | Cierra el modal o limpia el buscador |
 | `F10` | Cierre de caja |
 
@@ -812,15 +943,17 @@ flowchart TB
 
 ### 7.1 Objetivo y entorno
 
-Todo el sistema tiene que funcionar en **un VPS Linux de 1 vCPU y 1 GB de RAM** o en una **VM o contenedor
-LXC chico de Proxmox** en el local, con margen para el sistema operativo.
+El destino principal es **un VPS Linux de 1 vCPU y 1 GB de RAM con dominio propio**, publicado a través
+de **Cloudflare Tunnel**. El dominio público es requisito del login con Google (§2.2) y de la app móvil
+fuera de la red del local. Proxmox en el local queda como alternativa con la misma configuración.
 
 | Entorno | Recomendación |
 |---|---|
-| VPS barato | Debian 12 o Ubuntu 24.04 mínimo, 1 vCPU, 1–2 GB, 20 GB SSD. Docker Engine + plugin Compose |
-| Proxmox (local) | **VM** Debian 12 de 1 vCPU / 1,5 GB: es lo más simple y estable para Docker. Alternativa más liviana: **LXC sin privilegios** con `nesting=1` y `keyctl=1` (sobre almacenamiento ZFS puede requerir ajustar el driver de almacenamiento de Docker) |
+| **VPS (principal)** | Debian 12 o Ubuntu 24.04 mínimo, 1 vCPU, 1–2 GB, 20 GB SSD. Docker Engine + plugin Compose. Firewall del proveedor **sin puertos entrantes** salvo SSH (restringido por IP o por clave): todo el tráfico web entra por el túnel |
+| Dominio | Registrado en cualquier proveedor, con los DNS delegados a Cloudflare (plan gratuito). Subdominio `app.` para la web y la API; la app móvil apunta al mismo |
+| Proxmox (alternativa) | **VM** Debian 12 de 1 vCPU / 1,5 GB: es lo más simple y estable para Docker. Más liviano: **LXC sin privilegios** con `nesting=1` y `keyctl=1` (sobre ZFS puede requerir ajustar el driver de almacenamiento de Docker). Mismo túnel y mismo dominio |
 | Swap | 512 MB–1 GB con `zram` para absorber picos sin cortar procesos |
-| Acceso externo | Cloudflare Tunnel (D6): no hace falta IP pública ni abrir puertos, ideal para Proxmox detrás del router del local |
+| Acceso externo | Cloudflare Tunnel (D6): conexión saliente, sin IP pública expuesta ni puertos 80/443 abiertos |
 
 ### 7.2 Qué corre y qué se descarta
 
@@ -829,10 +962,11 @@ LXC chico de Proxmox** en el local, con margen para el sistema operativo.
 | PostgreSQL 15 | ✅ afinado para ~300 MB | Única base de datos; ya guarda sesiones, idempotencia y recorridos |
 | API FastAPI | ✅ **1 worker** de uvicorn | Alcanza para decenas de puestos con polling; además, el rate limit en memoria requiere un solo proceso |
 | Caddy | ✅ | Sirve el build estático y hace de proxy de `/api` (~20–30 MB) |
-| `cloudflared` | ✅ opcional (perfil `tunnel`) | Solo si se publica por túnel (~20–30 MB) |
+| `cloudflared` | ✅ (perfil `tunnel`, activo en el VPS) | Única puerta de entrada pública (~20–30 MB) |
 | Node / Vite en producción | ❌ | El frontend se compila dentro de la imagen de Caddy; no queda Node corriendo |
 | Redis | ❌ | Sesiones, refresh tokens e idempotencia viven en PostgreSQL; el rate limit es en memoria |
-| Colas (Celery, RQ) | ❌ | No hay trabajos largos; las tareas nocturnas (limpiar recorridos, verificar saldos) son un `cron` del host que llama a un comando de la API |
+| Colas (Celery, RQ) | ❌ | No hay trabajos largos; las tareas diarias (particiones y retención GPS §5.4, verificar saldos y reservas, limpiar refresh tokens vencidos) son un `cron` del host que ejecuta `python -m app.cli …` en el contenedor `api` |
+| `pg_partman`, TimescaleDB, PostGIS | ❌ | La retención se resuelve con particiones nativas y las distancias con *haversine*; no hacen falta extensiones |
 | Prometheus, Grafana, Loki | ❌ | `healthcheck` de Docker + un monitor de disponibilidad externo gratuito sobre `/api/health` |
 | Motor de ruteo (OSRM) | ❌ | Necesita varios GB de RAM; se usa la heurística local (§5.1) |
 | pgAdmin | ❌ | Acceso puntual con `psql` por SSH |
@@ -1037,7 +1171,11 @@ certificado (sin el perfil `tunnel`, con el puerto 443 publicado y el firewall l
 | `COOKIE_PREFIX` | *(vacío)* | `__Host-` | D7. Aplica a sesión, CSRF, terminal y la cookie transitoria de OAuth |
 | `CORS_ORIGINS` | *(vacía)* | *(vacía)* | Web en el mismo origen; la app nativa no está sujeta a CORS |
 | `SameSite` | `Strict` | `Strict` | Sesión, CSRF y terminal. Solo la cookie transitoria de OAuth es `Lax` (§2.2) |
-| `GOOGLE_*`, `OAUTH_REDIRECT_URL`, `PIN_PEPPER` | opcionales | obligatorias si se habilita Google o PIN | §2.5 |
+| `GOOGLE_*`, `OAUTH_REDIRECT_URL` | opcionales (sin ellas, el botón de Google no aparece) | **obligatorias** | Google siempre habilitado con dominio público (§2.2) |
+| `PIN_PEPPER` | cualquier valor de prueba | **obligatoria**, ≥ 32 caracteres | §2.3 |
+| `MEDIOS_PAGO_HABILITADOS` | `EFECTIVO,TRANSFERENCIA,TARJETA` | ídem | §4.5 |
+| `RETENCION_GPS_DIAS` | `90` | `90` | §5.4 |
+| `CLOUDFLARE_TUNNEL_TOKEN` | — | **obligatoria** en el VPS | §7.3 |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | 5 / 10 | 4 / 2 | Por debajo de `max_connections` |
 
 ### 7.6 Respaldos
@@ -1188,14 +1326,14 @@ recorridos usa `GET /entregas/hojas/{id}/recorrido` (§5.3).
 
 | Archivo | Cambios |
 |---|---|
-| `app/models/enums.py` | `RolEnum.REPARTIDOR` · `MetodoPagoEnum.CUENTA_CORRIENTE` · nuevos: `TipoTurnoEnum`, `OrigenVentaEnum`, `EstadoHojaRutaEnum`, `EstadoEntregaEnum`, `TipoEventoEntregaEnum`, `TipoMovimientoCtaCteEnum`, `ProveedorIdentidadEnum`, `TipoTerminalEnum` |
+| `app/models/enums.py` | `RolEnum.REPARTIDOR` · `MetodoPagoEnum.QR` y `.CUENTA_CORRIENTE` · nuevos: `EstadoPagoEnum`, `TipoTurnoEnum`, `OrigenVentaEnum`, `EstadoHojaRutaEnum`, `EstadoEntregaEnum`, `TipoEventoEntregaEnum`, `TipoEventoRecorridoEnum`, `TipoMovimientoCtaCteEnum`, `ProveedorIdentidadEnum`, `TipoTerminalEnum` |
 | `app/models/usuario.py` | `email`, `pin_hash`, `pin_fallidos`, `pin_bloqueado` |
 | `app/models/seguridad.py` (nuevo) | `IdentidadExterna`, `Terminal`, `Dispositivo`, `RefreshToken` |
-| `app/models/inventario.py` | `Producto.stock_reservado` + CHECK, `Producto.codigo`, `Producto.producto_base_id` |
-| `app/models/caja.py` | `Turno.tipo` + índice `(usuario_id, tipo)`, `Venta.origen`, `Venta.punto_entrega_id` |
+| `app/models/inventario.py` | `Producto.stock_reservado` + CHECK, `Producto.codigo`, `Producto.producto_base_id` · nueva `ConversionDiaAnterior` |
+| `app/models/caja.py` | `Turno.tipo` + índice `(usuario_id, tipo)`, `Venta.origen`, `Venta.punto_entrega_id` · nueva `VentaPago` (`monto: Dinero`, `CHECK monto > 0`) |
 | `app/models/comercial.py` | `Cliente.saldo_cuenta_corriente` (`Dinero`), `Cliente.cuit` |
 | `app/models/contabilidad.py` (nuevo) | `PuntoEntrega`, `DescuentoPunto`, `PlantillaEntrega`, `MovimientoCuentaCorriente` |
-| `app/models/reparto.py` (nuevo) | `HojaRuta`, `HojaRutaItem`, `Entrega`, `EntregaItem`, `EntregaEvento`, `RecorridoPunto` |
+| `app/models/reparto.py` (nuevo) | `HojaRuta`, `HojaRutaItem`, `Entrega`, `EntregaItem`, `EntregaEvento`, `RecorridoPunto` (particionada, `postgresql_partition_by`), `RecorridoEvento` |
 | `app/models/soporte.py` (nuevo) | `Numerador`, `OperacionIdempotente` |
 
 Tipos: todo importe es `Dinero`; porcentajes `Numeric(5,2)`; coordenadas `Numeric(9,6)`; distancias
@@ -1206,8 +1344,8 @@ Migraciones, en orden (§11):
 | Migración | Contenido |
 |---|---|
 | `0003_enums_v2` | Solo `ALTER TYPE … ADD VALUE` y enums nuevos. En PostgreSQL un valor agregado no se puede usar dentro de la misma transacción, por eso va separada |
-| `0004_puntos_entrega_ctacte` | Puntos de entrega, descuentos, plantillas, movimientos, saldo en clientes, variante día anterior, `productos.codigo` |
-| `0005_reparto` | Stock reservado + CHECK, turnos por tipo, origen de venta, hojas, entregas, eventos, recorrido, numeradores, idempotencia |
+| `0004_pagos_ctacte_dia_anterior` | `ventas_pagos` **con backfill** (un pago por cada venta existente, con su `metodo_pago` y `monto`), puntos de entrega, descuentos, plantillas, movimientos, saldo en clientes, variante y conversiones de día anterior, `productos.codigo` |
+| `0005_reparto` | Stock reservado + CHECK, turnos por tipo, origen de venta, hojas, entregas, eventos, numeradores, idempotencia · `recorrido_puntos` particionada (`op.execute` con `PARTITION BY RANGE`, la partición del mes en curso, la del siguiente y `DEFAULT`) y `recorrido_eventos` |
 | `0006_auth_hibrida` | Email, PIN, identidades externas, terminales, dispositivos, refresh tokens |
 
 ---
@@ -1224,7 +1362,10 @@ Solo las imprescindibles, cada una justificada:
 | Monorepo | `openapi-typescript` (desarrollo) | Tipos de la API compartidos entre web y app | No agrega nada al bundle |
 | App | `expo`, `expo-router`, `expo-secure-store`, `expo-auth-session`, `expo-crypto`, `expo-sqlite`, `expo-location`, `expo-task-manager`, `@react-native-community/netinfo`, `react-native-maps`, `@tanstack/react-query` | Navegación, sesión segura, login con Google, offline, GPS en segundo plano, detección de red, mapa, caché | Todas del ecosistema Expo, sin código nativo propio |
 | App (opcional) | `expo-local-authentication` | Desbloquear la app con huella o rostro | Solo si el negocio lo pide |
-| Infra | `caddy:2-alpine`, `cloudflare/cloudflared` (opcional) | Servir estáticos y proxy; túnel | Livianos (§7.2) |
+| Infra | `caddy:2-alpine`, `cloudflare/cloudflared` | Servir estáticos y proxy; túnel | Livianos (§7.2) |
+
+v3 no agrega dependencias: los pagos mixtos, la conversión a día anterior y la retención GPS usan solo
+PostgreSQL nativo y el código existente. Se descartan explícitamente `pg_partman`, TimescaleDB y PostGIS (§7.2).
 
 ---
 
@@ -1232,29 +1373,29 @@ Solo las imprescindibles, cada una justificada:
 
 Cada fase deja el sistema funcionando, con tests en verde y `alembic check` sin diferencias.
 
-### Fase 1 · Concurrencia base, puntos de entrega y cuenta corriente
+### Fase 1 · Concurrencia base, pagos, día anterior, puntos de entrega y cuenta corriente
 
 | Acción | Archivos |
 |---|---|
-| Tocar | `app/models/enums.py`, `inventario.py`, `comercial.py`, `caja.py`, `__init__.py` · `app/services/caja.py` (`FOR SHARE` del turno, venta a cuenta corriente) · `app/services/stock.py` (disponible, pasar a día anterior) · `app/services/inventario.py` (código de producto) · `app/api/v1/inventario.py` |
-| Crear | `app/models/contabilidad.py` · `app/services/contabilidad.py` · `app/services/descuentos.py` · `app/schemas/contabilidad.py` · `app/api/v1/contabilidad.py` · migraciones `0003` y `0004` · `tests/test_contabilidad.py` · `tests/test_descuentos.py` · pantallas web de Contabilidad |
-| Tests clave | venta concurrente con cierre de turno; precedencia de descuentos; saldo = suma de movimientos; pasar a día anterior bajo concurrencia |
+| Tocar | `app/models/enums.py`, `inventario.py`, `comercial.py`, `caja.py`, `__init__.py` · `app/services/caja.py` (`FOR SHARE` del turno, `ventas_pagos`, arqueo desde pagos, venta a cuenta corriente) · `app/schemas/caja.py` (`pagos` opcional en `VentaCreate`) · `app/services/stock.py` (disponible, pasar a día anterior y reversión) · `app/services/inventario.py` (código y variante de producto) · `app/api/v1/inventario.py` · `app/core/config.py` (`medios_pago_habilitados`) · `frontend/src/features/pos/modales.jsx` (pago mixto) · `frontend/src/features/stock/StockPage.jsx` (pantalla "Pasar a día anterior") |
+| Crear | `app/models/contabilidad.py` · `app/services/contabilidad.py` · `app/services/descuentos.py` · `app/schemas/contabilidad.py` · `app/api/v1/contabilidad.py` · `app/api/v1/stock.py` (día anterior) · migraciones `0003` y `0004` · `tests/test_pagos.py` · `tests/test_dia_anterior.py` · `tests/test_contabilidad.py` · `tests/test_descuentos.py` · pantallas web de Contabilidad |
+| Tests clave | venta concurrente con cierre de turno; pagos que no suman el total → `pagos_no_cuadran`; arqueo con pago mixto (solo cuenta la parte en efectivo); backfill: cada venta existente tiene un pago igual a su monto; día anterior no toma stock reservado y es todo o nada; reversión solo el mismo día; precedencia de descuentos; saldo = suma de movimientos |
 
 ### Fase 2 · Reparto, ruta sugerida y recorrido
 
 | Acción | Archivos |
 |---|---|
 | Tocar | `app/services/stock.py` (reservar, liberar, cargar, reingresar) · `app/services/finanzas.py` (canal) · `app/api/deps.py` (grupo `Reparto`) · `app/main.py` |
-| Crear | `app/models/reparto.py` · `app/models/soporte.py` · `app/services/entregas.py` · `app/services/rutas.py` (heurística y simplificación de traza) · `app/services/idempotencia.py` · `app/schemas/entregas.py` · `app/api/v1/entregas.py` · migración `0005` · `tests/test_entregas.py` · `tests/test_rutas.py` · pantallas web de hojas de ruta, rendición y mapa |
-| Tests clave | la caja no vende lo reservado; la carga parcial libera; un reintento con el mismo `operacion_id` no duplica; una entrega fuera de orden asigna `orden_real`; un lote GPS repetido no duplica; confirmar la hoja y vender a la vez en Postgres |
+| Crear | `app/models/reparto.py` · `app/models/soporte.py` · `app/services/entregas.py` · `app/services/rutas.py` (heurística y simplificación de traza) · `app/services/recorrido.py` (lotes, huecos, mantenimiento de particiones) · `app/services/idempotencia.py` · `app/schemas/entregas.py` · `app/api/v1/entregas.py` · comando `mantenimiento-gps` en `app/cli.py` · migración `0005` · `tests/test_entregas.py` · `tests/test_rutas.py` · `tests/test_retencion_gps.py` (solo Postgres) · pantallas web de hojas de ruta, rendición y mapa |
+| Tests clave | la caja no vende lo reservado; la carga parcial libera; un reintento con el mismo `operacion_id` no duplica; una entrega fuera de orden asigna `orden_real`; un lote GPS repetido no duplica; sin permiso de ubicación no se pasa a `EN_RUTA` (`hoja_sin_ubicacion`); el mantenimiento crea la partición siguiente y elimina las de más de 90 días sin tocar el resumen de la hoja; confirmar la hoja y vender a la vez en Postgres |
 
 ### Fase 3 · Infraestructura low-cost
 
 | Acción | Archivos |
 |---|---|
 | Tocar | `app/core/config.py` (`cookie_prefix`, pool, proxies de confianza) · `app/db/session.py` (tamaño del pool) · `app/api/v1/auth.py` (nombres de cookie) · `frontend/src/lib/api.js` · `.env.example` · `README.md` |
-| Crear | `docker-compose.prod.yml` · `deploy/web.Dockerfile` · `deploy/Caddyfile` · `deploy/backup.sh` · `docs/despliegue.md` (VPS, Proxmox, túnel, Cloudflare, restauración) |
-| Verificación | medir la RAM real con `docker stats` durante un día de uso simulado; restaurar un backup en una base vacía |
+| Crear | `docker-compose.prod.yml` · `deploy/web.Dockerfile` · `deploy/Caddyfile` · `deploy/backup.sh` · `deploy/crontab.ejemplo` (backup, mantenimiento GPS, verificaciones) · `docs/despliegue.md` (VPS con dominio, túnel, Cloudflare, registro de la URL de Google, Proxmox como alternativa, restauración) |
+| Verificación | el VPS no tiene puertos 80/443 abiertos y la app responde por el dominio; medir la RAM real con `docker stats` durante un día de uso simulado; restaurar un backup en una base vacía |
 
 ### Fase 4 · Autenticación híbrida y caja por teclado
 
@@ -1290,6 +1431,9 @@ Cada fase deja el sistema funcionando, con tests en verde y `alembic check` sin 
 | ~~P1~~ | ~~¿Precios mayoristas por lista o descuento por local?~~ | **Resuelto:** descuentos por punto de entrega, generales o por producto (§4.2) |
 | ~~P2~~ | ~~¿Límite de crédito bloqueante o solo aviso?~~ | **Resuelto:** no hay límite de crédito; se muestra el saldo (§4.4) |
 | ~~P3~~ | ~~¿El repartidor puede cambiar el orden?~~ | **Resuelto:** sí; la ruta es sugerida y se registra el recorrido real (§5) |
-| P4 | Pan del día anterior: ¿"Pasar a día anterior" manual o automático al abrir la jornada? | Propuesta: manual, con un botón en Stock, para que la encargada decida qué pasa |
-| P5 | ¿Cuánto tiempo guardar los recorridos GPS? | Propuesta: 90 días |
-| P6 | ¿La caja de mostrador podrá cobrar con tarjeta o QR a futuro? | El modelo lo admite agregando valores a `MetodoPagoEnum`; hoy no se contempla (no hay posnet) |
+| R11 | Pagos que no suman el total de la venta por un error del cliente | El servidor recalcula el total y rechaza con `pagos_no_cuadran`; nunca confía en el total enviado |
+| R12 | El repartidor desactiva la ubicación para no ser registrado | No puede iniciar la ruta sin permiso; los cortes en plena ruta quedan como eventos visibles para el dueño (§5.2) |
+| R13 | Se olvida correr el mantenimiento de particiones y un mes no tiene partición | La partición `DEFAULT` recibe los puntos (no se pierde nada) y el mantenimiento los reubica; el monitor externo alerta si el `cron` no corrió |
+| ~~P4~~ | ~~¿"Pasar a día anterior" manual o automático?~~ | **Resuelto:** manual, ejecutado por la encargada desde Stock, auditado y reversible en el día (§4.3) |
+| ~~P5~~ | ~~¿Cuánto tiempo guardar los recorridos GPS?~~ | **Resuelto:** 90 días de traza cruda con particiones mensuales; el resumen de cada hoja es permanente (§5.4) |
+| ~~P6~~ | ~~¿La caja podrá cobrar con tarjeta o QR a futuro?~~ | **Resuelto:** modelo preparado con `ventas_pagos` y `MetodoPagoEnum.QR`; la integración con posnet/QR queda para cuando exista (§4.5) |
