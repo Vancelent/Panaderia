@@ -11,12 +11,14 @@ from app.core.errors import NotFoundError
 from app.models import (
     CompraMateriaPrima,
     DetalleVenta,
+    EstadoPagoEnum,
     GastoVario,
     MateriaPrima,
     Merma,
     Producto,
     Proveedor,
     Venta,
+    VentaPago,
 )
 from app.schemas.finanzas import CompraCreate, GastoCreate, ProveedorCreate
 from app.services import stock
@@ -131,15 +133,28 @@ def resumen(db: Session, desde: date, hasta: date) -> dict:
     ini, fin = rango_local(desde, hasta)
     en_rango = (Venta.fecha >= ini, Venta.fecha < fin)
 
-    ventas = db.execute(select(Venta.fecha, Venta.monto, Venta.metodo_pago).where(*en_rango)).all()
+    ventas = db.execute(select(Venta.fecha, Venta.monto).where(*en_rango)).all()
     total_ventas = sum((Decimal(v.monto) for v in ventas), CERO)
 
-    por_medio: dict[str, list] = defaultdict(lambda: [CERO, 0])
+    # Por medio de pago salen de los pagos: en un pago mixto cada medio suma su parte
+    # y la venta cuenta una vez en cada medio que usó.
+    por_medio: dict[str, list] = {
+        m.value: [Decimal(total), int(cantidad)]
+        for m, total, cantidad in db.execute(
+            select(
+                VentaPago.metodo_pago,
+                func.sum(VentaPago.monto),
+                func.count(func.distinct(VentaPago.venta_id)),
+            )
+            .join(Venta, Venta.id == VentaPago.venta_id)
+            .where(*en_rango, VentaPago.estado == EstadoPagoEnum.APROBADO)
+            .group_by(VentaPago.metodo_pago)
+        )
+    }
+
     por_dia: dict[date, Decimal] = defaultdict(lambda: CERO)
     tz = zona()
     for v in ventas:
-        por_medio[v.metodo_pago.value][0] += Decimal(v.monto)
-        por_medio[v.metodo_pago.value][1] += 1
         fecha = v.fecha if v.fecha.tzinfo else v.fecha.replace(tzinfo=ZoneInfo("UTC"))
         por_dia[fecha.astimezone(tz).date()] += Decimal(v.monto)
 

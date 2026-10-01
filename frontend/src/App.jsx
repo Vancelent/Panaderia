@@ -17,6 +17,7 @@ const DashboardPage = lazy(() => import('./features/admin/DashboardPage'))
 const ProductosPage = lazy(() => import('./features/admin/ProductosPage'))
 const ComprasPage = lazy(() => import('./features/admin/ComprasPage'))
 const ArqueosPage = lazy(() => import('./features/admin/ArqueosPage'))
+const ContabilidadPage = lazy(() => import('./features/contabilidad/ContabilidadPage'))
 const UsuariosPage = lazy(() => import('./features/admin/UsuariosPage'))
 
 function Inicio() {
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/admin/productos" element={conRol(GESTION, <ProductosPage />)} />
         <Route path="/admin/compras" element={conRol(GESTION, <ComprasPage />)} />
         <Route path="/admin/arqueos" element={conRol(GESTION, <ArqueosPage />)} />
+        <Route path="/admin/contabilidad" element={conRol(GESTION, <ContabilidadPage />)} />
         <Route path="/admin/usuarios" element={conRol([ROL.ADMIN], <UsuariosPage />)} />
       </Route>
       <Route path="*" element={<Inicio />} />

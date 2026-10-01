@@ -39,6 +39,13 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class UnprocessableError(AppError):
+    """Datos bien formados que no cumplen una regla de negocio (p. ej. pagos que no suman)."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = "unprocessable"
+
+
 class AuthError(AppError):
     status_code = status.HTTP_401_UNAUTHORIZED
     code = "unauthorized"

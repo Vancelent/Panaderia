@@ -1,21 +1,39 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftRight, Banknote, CreditCard, LockKeyhole, Receipt } from 'lucide-react'
+import {
+  ArrowLeftRight,
+  Banknote,
+  BookUser,
+  CreditCard,
+  LockKeyhole,
+  Plus,
+  QrCode,
+  Receipt,
+  Split,
+  Trash2,
+} from 'lucide-react'
 import { Button } from '../../components/ui/Button'
-import { Field, Input } from '../../components/ui/Field'
+import { Field, Input, Select } from '../../components/ui/Field'
 import { Modal } from '../../components/ui/Modal'
 import { Badge, EmptyState } from '../../components/ui/misc'
 import { Spinner } from '../../components/ui/Spinner'
 import { useToast } from '../../components/ui/toast'
 import { mensajeError, post } from '../../lib/api'
 import { fmtDinero, fmtHora } from '../../lib/format'
-import { qk, useVentasTurno } from '../../lib/queries'
+import { qk, useClientes, useMediosPago, useVentasTurno } from '../../lib/queries'
 
-const METODOS = [
-  { value: 'Efectivo', icon: Banknote, tone: 'emerald' },
-  { value: 'Tarjeta', icon: CreditCard, tone: 'sky' },
-  { value: 'Transferencia', icon: ArrowLeftRight, tone: 'violet' },
-]
+const ICONOS = {
+  Efectivo: Banknote,
+  Tarjeta: CreditCard,
+  Transferencia: ArrowLeftRight,
+  QR: QrCode,
+  'Cuenta corriente': BookUser,
+}
+const CUENTA_CORRIENTE = 'Cuenta corriente'
+const MAX_PAGOS = 5
+
+const aCentavos = (v) => Math.round((Number(v) || 0) * 100)
+const aMonto = (centavos) => (centavos / 100).toFixed(2)
 
 /** Montos típicos con los que paga el cliente, a partir del total. */
 function sugerencias(total) {
@@ -28,28 +46,93 @@ function sugerencias(total) {
   return [...res].sort((a, b) => a - b).slice(0, 4)
 }
 
+/** Buscador de clientes para la venta a cuenta corriente. */
+function SelectorCliente({ value, onChange }) {
+  const [buscar, setBuscar] = useState('')
+  const { data: clientes = [] } = useClientes(value ? null : buscar)
+  if (value) {
+    return (
+      <div className="flex items-center justify-between rounded-xl border border-brand-300 bg-brand-50 px-3 py-2.5 dark:border-brand-800 dark:bg-brand-950/40">
+        <span className="font-semibold">{value.nombre}</span>
+        <Button size="sm" variant="ghost" onClick={() => onChange(null)}>
+          Cambiar
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <Input placeholder="Buscar cliente por nombre o teléfono…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+      <ul className="mt-2 max-h-36 overflow-y-auto rounded-xl border border-stone-200 dark:border-stone-800">
+        {clientes.length === 0 ? (
+          <li className="p-3 text-sm text-stone-500">Sin coincidencias. Podés darlo de alta en Clientes.</li>
+        ) : (
+          clientes.slice(0, 20).map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => onChange(c)}
+                className="flex w-full justify-between px-3 py-2 text-left text-sm hover:bg-stone-50 dark:hover:bg-stone-800"
+              >
+                <span className="font-medium">{c.nombre}</span>
+                <span className="tabular text-stone-500">{c.saldo_cuenta_corriente ? fmtDinero(c.saldo_cuenta_corriente) : ''}</span>
+              </button>
+            </li>
+          ))
+        )}
+      </ul>
+    </div>
+  )
+}
+
 export function CobroModal({ open, onClose, items, total, onVendido }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const medios = useMediosPago()
   const [metodo, setMetodo] = useState('Efectivo')
   const [recibido, setRecibido] = useState('')
+  const [dividido, setDividido] = useState(false)
+  const [lineas, setLineas] = useState([{ metodo: 'Efectivo', monto: '' }])
+  const [cliente, setCliente] = useState(null)
+
+  const habilitados = medios.data?.habilitados ?? ['Efectivo', 'Transferencia', 'Tarjeta']
+  const opciones = medios.data?.cuenta_corriente === false ? habilitados : [...habilitados, CUENTA_CORRIENTE]
+  const totalCent = aCentavos(total)
+
+  const usaCuentaCorriente = dividido ? lineas.some((l) => l.metodo === CUENTA_CORRIENTE) : metodo === CUENTA_CORRIENTE
+  const sumaCent = lineas.reduce((t, l) => t + aCentavos(l.monto), 0)
+  const restanteCent = totalCent - sumaCent
+
+  const reset = () => {
+    setRecibido('')
+    setMetodo('Efectivo')
+    setDividido(false)
+    setLineas([{ metodo: 'Efectivo', monto: '' }])
+    setCliente(null)
+  }
 
   const vender = useMutation({
-    mutationFn: () =>
-      post('/ventas', {
-        metodo_pago: metodo,
-        items: items.map((i) => ({ producto_id: i.producto.id, cantidad: i.cantidad })),
-      }),
+    mutationFn: () => {
+      const body = { items: items.map((i) => ({ producto_id: i.producto.id, cantidad: i.cantidad })) }
+      if (usaCuentaCorriente) body.cliente_id = cliente.id
+      if (dividido) {
+        // El servidor recalcula el total y rechaza pagos que no sumen (pagos_no_cuadran)
+        body.pagos = lineas.map((l) => ({ metodo_pago: l.metodo, monto: aMonto(aCentavos(l.monto)) }))
+      } else {
+        body.metodo_pago = metodo
+      }
+      return post('/ventas', body)
+    },
     onSuccess: (venta) => {
-      const vuelto = metodo === 'Efectivo' && recibido ? Number(recibido) - venta.monto : 0
+      const vuelto = !dividido && metodo === 'Efectivo' && recibido ? Number(recibido) - venta.monto : 0
       toast.ok(
         `Venta #${venta.id} registrada · ${fmtDinero(venta.monto)}` +
           (vuelto > 0 ? ` · Vuelto ${fmtDinero(vuelto)}` : ''),
       )
       qc.invalidateQueries({ queryKey: ['productos'] })
       qc.invalidateQueries({ queryKey: qk.ventasTurno })
-      setRecibido('')
-      setMetodo('Efectivo')
+      qc.invalidateQueries({ queryKey: ['saldos'] })
+      reset()
       onVendido()
     },
     onError: (e) => {
@@ -61,7 +144,19 @@ export function CobroModal({ open, onClose, items, total, onVendido }) {
 
   const recibidoNum = Number(recibido) || 0
   const vuelto = recibidoNum - total
-  const faltaEfectivo = metodo === 'Efectivo' && recibido !== '' && vuelto < 0
+  const faltaEfectivo = !dividido && metodo === 'Efectivo' && recibido !== '' && vuelto < 0
+  const lineasValidas = lineas.every((l) => aCentavos(l.monto) > 0)
+  const bloqueado =
+    faltaEfectivo ||
+    (usaCuentaCorriente && !cliente) ||
+    (dividido && (restanteCent !== 0 || !lineasValidas))
+
+  const cambiarLinea = (idx, cambios) =>
+    setLineas((ls) => ls.map((l, i) => (i === idx ? { ...l, ...cambios } : l)))
+  const dividir = () => {
+    setDividido(true)
+    setLineas([{ metodo, monto: '' }])
+  }
 
   return (
     <Modal
@@ -73,13 +168,7 @@ export function CobroModal({ open, onClose, items, total, onVendido }) {
           <Button variant="secondary" onClick={onClose}>
             Volver
           </Button>
-          <Button
-            variant="success"
-            size="lg"
-            loading={vender.isPending}
-            disabled={faltaEfectivo}
-            onClick={() => vender.mutate()}
-          >
+          <Button variant="success" size="lg" loading={vender.isPending} disabled={bloqueado} onClick={() => vender.mutate()}>
             Confirmar {fmtDinero(total)}
           </Button>
         </>
@@ -88,33 +177,131 @@ export function CobroModal({ open, onClose, items, total, onVendido }) {
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (!faltaEfectivo) vender.mutate()
+          if (!bloqueado) vender.mutate()
         }}
       >
         <div className="mb-5 rounded-2xl bg-stone-100 p-4 text-center dark:bg-stone-800">
           <p className="text-sm text-stone-500">Total a cobrar</p>
           <p className="tabular text-4xl font-extrabold tracking-tight">{fmtDinero(total)}</p>
         </div>
-        <div className="mb-5 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Método de pago">
-          {METODOS.map(({ value, icon: Icon }) => (
-            <button
-              type="button"
-              key={value}
-              role="radio"
-              aria-checked={metodo === value}
-              onClick={() => setMetodo(value)}
-              className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 p-3 text-sm font-semibold transition ${
-                metodo === value
-                  ? 'border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-950/50 dark:text-brand-200'
-                  : 'border-stone-200 hover:border-stone-300 dark:border-stone-700'
+
+        {!dividido ? (
+          <>
+            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Método de pago">
+              {opciones.map((value) => {
+                const Icon = ICONOS[value] ?? Banknote
+                return (
+                  <button
+                    type="button"
+                    key={value}
+                    role="radio"
+                    aria-checked={metodo === value}
+                    onClick={() => setMetodo(value)}
+                    className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 p-3 text-sm font-semibold transition ${
+                      metodo === value
+                        ? 'border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-950/50 dark:text-brand-200'
+                        : 'border-stone-200 hover:border-stone-300 dark:border-stone-700'
+                    }`}
+                  >
+                    <Icon className="h-6 w-6" />
+                    <span className="text-center leading-tight">{value}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mb-4 flex justify-end">
+              <Button type="button" size="sm" variant="ghost" icon={Split} onClick={dividir}>
+                Dividir el pago
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="mb-4 space-y-2">
+            {lineas.map((l, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Select
+                  aria-label={`Medio ${idx + 1}`}
+                  className="w-40 shrink-0 sm:w-52"
+                  value={l.metodo}
+                  onChange={(e) => cambiarLinea(idx, { metodo: e.target.value })}
+                >
+                  {opciones.map((o) => (
+                    <option key={o}>{o}</option>
+                  ))}
+                </Select>
+                <Input
+                  aria-label={`Monto ${idx + 1}`}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  className="tabular text-right font-bold"
+                  placeholder="0,00"
+                  value={l.monto}
+                  onChange={(e) => cambiarLinea(idx, { monto: e.target.value })}
+                />
+                {restanteCent > 0 && idx === lineas.length - 1 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="soft"
+                    title="Completar con lo que falta"
+                    onClick={() => cambiarLinea(idx, { monto: aMonto(aCentavos(l.monto) + restanteCent) })}
+                  >
+                    Resto
+                  </Button>
+                )}
+                {lineas.length > 1 && (
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    icon={Trash2}
+                    aria-label="Quitar medio"
+                    onClick={() => setLineas((ls) => ls.filter((_, i) => i !== idx))}
+                  />
+                )}
+              </div>
+            ))}
+            <div className="flex items-center justify-between">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={Plus}
+                disabled={lineas.length >= MAX_PAGOS}
+                onClick={() => setLineas((ls) => [...ls, { metodo: opciones[0], monto: '' }])}
+              >
+                Agregar medio
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setDividido(false)}>
+                Un solo medio
+              </Button>
+            </div>
+            <div
+              className={`flex items-center justify-between rounded-2xl p-4 ${
+                restanteCent === 0
+                  ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  : 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
               }`}
+              role="status"
             >
-              <Icon className="h-6 w-6" />
-              {value}
-            </button>
-          ))}
-        </div>
-        {metodo === 'Efectivo' && (
+              <span className="font-semibold">
+                {restanteCent === 0 ? 'Pagos completos' : restanteCent > 0 ? 'Falta cubrir' : 'Sobra'}
+              </span>
+              <span className="tabular text-2xl font-extrabold">{fmtDinero(Math.abs(restanteCent) / 100)}</span>
+            </div>
+          </div>
+        )}
+
+        {usaCuentaCorriente && (
+          <div className="mb-4">
+            <p className="label">Cliente de la cuenta corriente</p>
+            <SelectorCliente value={cliente} onChange={setCliente} />
+          </div>
+        )}
+
+        {!dividido && metodo === 'Efectivo' && (
           <div className="space-y-3">
             <Field label="Paga con">
               {(id) => (
@@ -246,7 +433,12 @@ export function VentasTurnoModal({ open, onClose }) {
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">#{v.id}</span>
                   <span className="text-sm text-stone-500">{fmtHora(v.fecha)}</span>
-                  <Badge tone={v.metodo_pago === 'Efectivo' ? 'green' : 'blue'}>{v.metodo_pago}</Badge>
+                  {v.pagos.map((p, i) => (
+                    <Badge key={i} tone={p.metodo_pago === 'Efectivo' ? 'green' : 'blue'}>
+                      {p.metodo_pago}
+                      {v.pagos.length > 1 ? ` ${fmtDinero(p.monto)}` : ''}
+                    </Badge>
+                  ))}
                 </div>
                 <span className="tabular font-bold">{fmtDinero(v.monto)}</span>
               </div>

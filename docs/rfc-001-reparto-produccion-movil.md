@@ -1343,9 +1343,9 @@ Migraciones, en orden (§11):
 
 | Migración | Contenido |
 |---|---|
-| `0003_enums_v2` | Solo `ALTER TYPE … ADD VALUE` y enums nuevos. En PostgreSQL un valor agregado no se puede usar dentro de la misma transacción, por eso va separada |
-| `0004_pagos_ctacte_dia_anterior` | `ventas_pagos` **con backfill** (un pago por cada venta existente, con su `metodo_pago` y `monto`), puntos de entrega, descuentos, plantillas, movimientos, saldo en clientes, variante y conversiones de día anterior, `productos.codigo` |
-| `0005_reparto` | Stock reservado + CHECK, turnos por tipo, origen de venta, hojas, entregas, eventos, numeradores, idempotencia · `recorrido_puntos` particionada (`op.execute` con `PARTITION BY RANGE`, la partición del mes en curso, la del siguiente y `DEFAULT`) y `recorrido_eventos` |
+| `0003_enums_v2` | Solo `ALTER TYPE … ADD VALUE` y enums nuevos. En PostgreSQL un valor agregado no se puede usar dentro de la misma transacción, por eso va separada. **Implementada en la Fase 1 con lo que ella usa:** `metodopagoenum` + `QR` y `CUENTA_CORRIENTE`, y los tipos `estadopagoenum` y `tipomovimientoctacteenum`. `RolEnum.REPARTIDOR` y los enums de reparto se agregan en una `0005` previa a las tablas de la Fase 2 |
+| `0004_pagos_ctacte_dia_anterior` | `ventas_pagos` **con backfill** (un pago por cada venta existente, con su `metodo_pago` y `monto`), puntos de entrega, descuentos, plantillas, movimientos, saldo en clientes, variante y conversiones de día anterior, `productos.codigo`, `arqueos.cobros_efectivo` (cobros de cuenta corriente en efectivo) y **`productos.stock_reservado` + CHECK**: se adelantó desde la `0005` porque la validación "el día anterior no toma stock reservado" de la Fase 1 necesita la columna; queda en 0 hasta que el reparto la use |
+| `0005_reparto` | (`REPARTIDOR` y enums de reparto), turnos por tipo, origen de venta, hojas, entregas, eventos, numeradores, idempotencia · `recorrido_puntos` particionada (`op.execute` con `PARTITION BY RANGE`, la partición del mes en curso, la del siguiente y `DEFAULT`) y `recorrido_eventos` |
 | `0006_auth_hibrida` | Email, PIN, identidades externas, terminales, dispositivos, refresh tokens |
 
 ---

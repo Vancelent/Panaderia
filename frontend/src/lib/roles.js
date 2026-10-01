@@ -3,6 +3,7 @@ import {
   ChefHat,
   ClipboardList,
   Package,
+  NotebookTabs,
   Receipt,
   ShoppingCart,
   Store,
@@ -43,6 +44,7 @@ export const NAV = [
   { to: '/clientes', label: 'Clientes', icon: Users, roles: MOSTRADOR },
   { to: '/admin/productos', label: 'Productos', icon: Store, roles: GESTION },
   { to: '/admin/compras', label: 'Compras', icon: Truck, roles: GESTION },
+  { to: '/admin/contabilidad', label: 'Contabilidad', icon: NotebookTabs, roles: GESTION },
   { to: '/admin/arqueos', label: 'Arqueos', icon: Receipt, roles: GESTION },
   { to: '/admin/usuarios', label: 'Usuarios', icon: UserCog, roles: [ROL.ADMIN] },
 ]

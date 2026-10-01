@@ -36,6 +36,7 @@ export default function ArqueosPage() {
                 <th className="px-4 py-3 text-right font-semibold">Fondo</th>
                 <th className="px-4 py-3 text-right font-semibold">Ventas efvo.</th>
                 <th className="px-4 py-3 text-right font-semibold">Otros medios</th>
+                <th className="px-4 py-3 text-right font-semibold">Cobros cta. cte.</th>
                 <th className="px-4 py-3 text-right font-semibold">Esperado</th>
                 <th className="px-4 py-3 text-right font-semibold">Declarado</th>
                 <th className="px-4 py-3 text-right font-semibold">Diferencia</th>
@@ -50,6 +51,7 @@ export default function ArqueosPage() {
                   <td className="px-4 py-3 text-right">{fmtDinero(a.efectivo_inicial)}</td>
                   <td className="px-4 py-3 text-right">{a.ventas_efectivo != null ? fmtDinero(a.ventas_efectivo) : '—'}</td>
                   <td className="px-4 py-3 text-right">{a.ventas_otros_medios != null ? fmtDinero(a.ventas_otros_medios) : '—'}</td>
+                  <td className="px-4 py-3 text-right">{a.cobros_efectivo != null ? fmtDinero(a.cobros_efectivo) : '—'}</td>
                   <td className="px-4 py-3 text-right font-semibold">{fmtDinero(a.monto_sistema)}</td>
                   <td className="px-4 py-3 text-right">{fmtDinero(a.monto_declarado)}</td>
                   <td className="px-4 py-3 text-right">

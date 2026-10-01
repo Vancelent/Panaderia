@@ -1,11 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Enum, ForeignKey, Index, text
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, utcnow
-from app.models.enums import EstadoTurnoEnum, MetodoPagoEnum
+from app.models.enums import EstadoPagoEnum, EstadoTurnoEnum, MetodoPagoEnum
 from app.models.usuario import Usuario
 
 
@@ -42,12 +42,13 @@ class Arqueo(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     turno_id: Mapped[int] = mapped_column(ForeignKey("turnos.id"), unique=True)
-    # Efectivo esperado: fondo inicial + ventas en efectivo
+    # Efectivo esperado: fondo inicial + ventas en efectivo + cobros de cuenta corriente en efectivo
     monto_sistema: Mapped[Decimal]
     monto_declarado: Mapped[Decimal]
     diferencia: Mapped[Decimal]
     ventas_efectivo: Mapped[Decimal | None]
     ventas_otros_medios: Mapped[Decimal | None]
+    cobros_efectivo: Mapped[Decimal | None]
     fecha: Mapped[datetime | None] = mapped_column(default=utcnow)
 
     turno: Mapped[Turno] = relationship(back_populates="arqueo")
@@ -61,6 +62,7 @@ class Venta(Base):
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
     cliente_id: Mapped[int | None] = mapped_column(ForeignKey("clientes.id"), index=True)
     fecha: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    # Medio principal (el de mayor monto). El detalle real de cómo se pagó está en `pagos`.
     metodo_pago: Mapped[MetodoPagoEnum] = mapped_column(
         Enum(MetodoPagoEnum), default=MetodoPagoEnum.EFECTIVO
     )
@@ -69,6 +71,31 @@ class Venta(Base):
     detalles: Mapped[list["DetalleVenta"]] = relationship(
         back_populates="venta", cascade="all, delete-orphan"
     )
+    pagos: Mapped[list["VentaPago"]] = relationship(
+        back_populates="venta", cascade="all, delete-orphan", order_by="VentaPago.id"
+    )
+
+
+class VentaPago(Base):
+    """Uno o más pagos por venta (pago mixto). La suma de montos aprobados es el total de la venta."""
+
+    __tablename__ = "ventas_pagos"
+    __table_args__ = (CheckConstraint("monto > 0", name="ck_venta_pago_monto_positivo"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venta_id: Mapped[int] = mapped_column(ForeignKey("ventas.id"), index=True)
+    metodo_pago: Mapped[MetodoPagoEnum] = mapped_column(Enum(MetodoPagoEnum))
+    monto: Mapped[Decimal]
+    # Nº de transferencia, cupón o id de QR
+    referencia: Mapped[str | None] = mapped_column(String(120))
+    estado: Mapped[EstadoPagoEnum] = mapped_column(
+        Enum(EstadoPagoEnum), default=EstadoPagoEnum.APROBADO
+    )
+    # Procesador del posnet/QR, cuando exista una integración
+    proveedor: Mapped[str | None] = mapped_column(String(60))
+    fecha: Mapped[datetime] = mapped_column(default=utcnow)
+
+    venta: Mapped[Venta] = relationship(back_populates="pagos")
 
 
 class DetalleVenta(Base):

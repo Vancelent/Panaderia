@@ -2,17 +2,25 @@
 
 Los bloqueos se toman siempre ordenados por id para evitar deadlocks entre
 transacciones concurrentes (dos cajas vendiendo a la vez, producción, etc.).
+
+Todas las lecturas bajo bloqueo usan `populate_existing`: en READ COMMITTED, tras
+obtener el FOR UPDATE la fila es la última versión confirmada, pero SQLAlchemy no
+pisaría los atributos de un objeto que ya estuviera cargado en la sesión.
 """
 
 from collections import Counter
 from collections.abc import Iterable
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
-from app.models import MateriaPrima, Producto
+from app.db.base import utcnow
+from app.models import ConversionDiaAnterior, MateriaPrima, Producto, Usuario
 
 
 def agrupar(items: Iterable[tuple[int, int]]) -> dict[int, int]:
@@ -28,7 +36,11 @@ def bloquear_productos(db: Session, ids: Iterable[int], *, solo_activos: bool = 
     productos = {
         p.id: p
         for p in db.scalars(
-            select(Producto).where(Producto.id.in_(ids)).order_by(Producto.id).with_for_update()
+            select(Producto)
+            .where(Producto.id.in_(ids))
+            .order_by(Producto.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     }
     faltantes = [i for i in ids if i not in productos]
@@ -50,29 +62,148 @@ def bloquear_materias_primas(db: Session, ids: Iterable[int]) -> dict[int, Mater
             .where(MateriaPrima.id.in_(ids))
             .order_by(MateriaPrima.id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     }
 
 
+def disponible(producto: Producto) -> int:
+    """Unidades que el mostrador puede vender: lo que hay menos lo reservado para reparto."""
+    return producto.stock_mostrador - producto.stock_reservado
+
+
+def _stock_insuficiente(faltan: list[dict]) -> ConflictError:
+    detalle = ", ".join(
+        f"{i['nombre']} (disponible {i['disponible']}, pedido {i['solicitado']})" for i in faltan
+    )
+    return ConflictError(f"Stock insuficiente: {detalle}.", code="stock_insuficiente", details=faltan)
+
+
 def descontar_productos(productos: dict[int, Producto], cantidades: dict[int, int]) -> None:
-    """Valida todo primero y descuenta después: o se descuenta todo, o nada."""
+    """Valida todo primero y descuenta después: o se descuenta todo, o nada.
+
+    Se valida contra el disponible, así que nunca se consume mercadería reservada.
+    """
     insuficientes = [
         {"producto_id": pid, "nombre": productos[pid].nombre,
-         "disponible": productos[pid].stock_mostrador, "solicitado": cant}
+         "disponible": disponible(productos[pid]), "solicitado": cant}
         for pid, cant in cantidades.items()
-        if productos[pid].stock_mostrador < cant
+        if disponible(productos[pid]) < cant
     ]
     if insuficientes:
-        detalle = ", ".join(
-            f"{i['nombre']} (disponible {i['disponible']}, pedido {i['solicitado']})"
-            for i in insuficientes
-        )
-        raise ConflictError(
-            f"Stock insuficiente: {detalle}.", code="stock_insuficiente", details=insuficientes
-        )
+        raise _stock_insuficiente(insuficientes)
     for pid, cant in cantidades.items():
         productos[pid].stock_mostrador -= cant
 
 
 def redondear_dinero(valor: Decimal) -> Decimal:
-    return valor.quantize(Decimal("0.01"))
+    return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+# ---------- Pan del día anterior ----------
+
+
+def hoy_local() -> date:
+    return datetime.now(ZoneInfo(get_settings().zona_horaria)).date()
+
+
+def fecha_local(dt: datetime) -> date:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(ZoneInfo(get_settings().zona_horaria)).date()
+
+
+def pasar_a_dia_anterior(
+    db: Session, usuario: Usuario, pares: Iterable[tuple[int, int]], motivo: str | None = None
+) -> list[ConversionDiaAnterior]:
+    """Ajuste manual: mueve unidades de cada producto fresco a su variante "día anterior".
+
+    Todo o nada, en una transacción. Bloquea en un solo `bloquear_productos()` los
+    productos base y sus variantes, ordenados por id (nivel 7 de la jerarquía de
+    bloqueos), y valida contra el disponible: no toca lo reservado.
+    """
+    cantidades = agrupar(pares)
+    if not cantidades:
+        raise ConflictError("No hay nada para pasar a día anterior.", code="sin_cantidades")
+
+    # Mapa base -> variante leído SIN cargar entidades (no contamina la sesión) para saber
+    # qué filas bloquear; después se confirma sobre las filas ya bloqueadas.
+    filas = db.execute(
+        select(Producto.producto_base_id, Producto.id).where(Producto.producto_base_id.in_(cantidades))
+    ).all()
+    variante_de = {base: variante for base, variante in filas}
+    productos = bloquear_productos(db, [*cantidades, *variante_de.values()])
+
+    sin_variante = [productos[b].nombre for b in cantidades if b not in variante_de]
+    if sin_variante:
+        raise ConflictError(
+            f"Sin variante de día anterior: {', '.join(sin_variante)}.", code="sin_variante"
+        )
+    es_variante = [productos[b].nombre for b in cantidades if productos[b].producto_base_id is not None]
+    if es_variante:
+        raise ConflictError(
+            f"Ya es una variante de día anterior: {', '.join(es_variante)}.", code="es_variante"
+        )
+
+    insuficientes = [
+        {"producto_id": b, "nombre": productos[b].nombre,
+         "disponible": disponible(productos[b]), "solicitado": c}
+        for b, c in cantidades.items()
+        if disponible(productos[b]) < c
+    ]
+    if insuficientes:
+        raise _stock_insuficiente(insuficientes)
+
+    conversiones = []
+    for base, cant in sorted(cantidades.items()):
+        productos[base].stock_mostrador -= cant
+        productos[variante_de[base]].stock_mostrador += cant
+        conversion = ConversionDiaAnterior(
+            producto_base_id=base, variante_id=variante_de[base], cantidad=cant,
+            usuario_id=usuario.id, motivo=motivo,
+        )
+        db.add(conversion)
+        conversiones.append(conversion)
+    db.commit()
+    return conversiones
+
+
+def revertir_conversion(db: Session, usuario: Usuario, conversion_id: int) -> ConversionDiaAnterior:
+    """Deshace una conversión: solo el mismo día y solo con lo que siga disponible en la variante."""
+    original = db.scalar(
+        select(ConversionDiaAnterior)
+        .where(ConversionDiaAnterior.id == conversion_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if original is None:
+        raise NotFoundError("Conversión no encontrada.")
+    if original.revierte_id is not None:
+        raise ConflictError("Una reversión no se puede revertir.", code="conversion_no_revertible")
+    if fecha_local(original.fecha) != hoy_local():
+        raise ConflictError(
+            "Solo se puede deshacer una conversión del mismo día.", code="conversion_vencida"
+        )
+    ya_revertida = db.scalar(
+        select(ConversionDiaAnterior.id).where(ConversionDiaAnterior.revierte_id == original.id)
+    )
+    if ya_revertida is not None:
+        raise ConflictError("La conversión ya fue revertida.", code="conversion_ya_revertida")
+
+    productos = bloquear_productos(db, [original.producto_base_id, original.variante_id])
+    variante = productos[original.variante_id]
+    if disponible(variante) < original.cantidad:
+        raise _stock_insuficiente([
+            {"producto_id": variante.id, "nombre": variante.nombre,
+             "disponible": disponible(variante), "solicitado": original.cantidad}
+        ])
+    variante.stock_mostrador -= original.cantidad
+    productos[original.producto_base_id].stock_mostrador += original.cantidad
+    reversion = ConversionDiaAnterior(
+        producto_base_id=original.producto_base_id, variante_id=original.variante_id,
+        cantidad=original.cantidad, usuario_id=usuario.id, revierte_id=original.id,
+        motivo=f"Reversión de #{original.id}", fecha=utcnow(),
+    )
+    db.add(reversion)
+    db.commit()
+    return reversion

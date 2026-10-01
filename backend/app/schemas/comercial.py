@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, StringConstraints, model_valida
 from app.models.enums import EstadoPedidoEnum, MetodoPagoEnum
 from app.schemas.common import DineroOut, ORMModel, Texto, TextoLargo, TextoOpcional, Unidades
 
+Cuit = Annotated[str, StringConstraints(strip_whitespace=True, max_length=20, pattern=r"^[0-9\-]*$")]
 Telefono = Annotated[str, StringConstraints(strip_whitespace=True, max_length=40,
                                             pattern=r"^[0-9+()\-\s]*$")]
 
@@ -17,6 +18,7 @@ class ClienteBase(BaseModel):
     telefono: Telefono | None = None
     email: EmailStr | None = None
     direccion: TextoOpcional = None
+    cuit: Cuit | None = None
     notas: TextoLargo | None = None
 
 
@@ -29,6 +31,7 @@ class ClienteUpdate(BaseModel):
     telefono: Telefono | None = None
     email: EmailStr | None = None
     direccion: TextoOpcional = None
+    cuit: Cuit | None = None
     notas: TextoLargo | None = None
     activo: bool | None = None
 
@@ -39,6 +42,8 @@ class ClienteOut(ORMModel):
     telefono: str | None
     email: str | None
     direccion: str | None
+    cuit: str | None
+    saldo_cuenta_corriente: DineroOut
     notas: str | None
     activo: bool
     creado_en: datetime

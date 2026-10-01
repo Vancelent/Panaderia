@@ -20,6 +20,13 @@ export const qk = {
   proveedores: ['proveedores'],
   compras: ['compras'],
   gastos: ['gastos'],
+  mediosPago: ['medios-pago'],
+  diaAnterior: ['dia-anterior'],
+  puntosEntrega: (params) => ['puntos-entrega', params ?? {}],
+  plantillas: (id) => ['plantillas', id],
+  descuentos: (id) => ['descuentos', id],
+  saldos: ['saldos'],
+  cuentaCorriente: (id) => ['cuenta-corriente', id],
 }
 
 // Cada cuánto se refresca el stock solo, para ver lo que cargan otras pantallas
@@ -91,3 +98,46 @@ export const useProveedores = () =>
   useQuery({ queryKey: qk.proveedores, queryFn: () => get('/proveedores') })
 export const useCompras = () => useQuery({ queryKey: qk.compras, queryFn: () => get('/compras') })
 export const useGastos = () => useQuery({ queryKey: qk.gastos, queryFn: () => get('/gastos') })
+
+// Medios que ofrece la caja (los define el servidor); cuenta corriente aparte, si hay cliente
+export const useMediosPago = () =>
+  useQuery({ queryKey: qk.mediosPago, queryFn: () => get('/medios-pago'), staleTime: 5 * 60_000 })
+
+export const useDiaAnterior = (enabled = true) =>
+  useQuery({
+    queryKey: qk.diaAnterior,
+    queryFn: () => get('/stock/dia-anterior'),
+    enabled,
+    refetchInterval: REFRESCO_STOCK_MS,
+  })
+
+export const usePuntosEntrega = (params) =>
+  useQuery({
+    queryKey: qk.puntosEntrega(params),
+    queryFn: () => get('/contabilidad/puntos-entrega', params),
+    placeholderData: (prev) => prev,
+  })
+
+export const usePlantillas = (puntoId) =>
+  useQuery({
+    queryKey: qk.plantillas(puntoId),
+    queryFn: () => get(`/contabilidad/puntos-entrega/${puntoId}/plantillas`),
+    enabled: !!puntoId,
+  })
+
+export const useDescuentos = (puntoId) =>
+  useQuery({
+    queryKey: qk.descuentos(puntoId),
+    queryFn: () => get(`/contabilidad/puntos-entrega/${puntoId}/descuentos`),
+    enabled: !!puntoId,
+  })
+
+export const useSaldos = () =>
+  useQuery({ queryKey: qk.saldos, queryFn: () => get('/contabilidad/saldos'), refetchInterval: 30_000 })
+
+export const useCuentaCorriente = (clienteId) =>
+  useQuery({
+    queryKey: qk.cuentaCorriente(clienteId),
+    queryFn: () => get(`/contabilidad/clientes/${clienteId}/cuenta-corriente`),
+    enabled: !!clienteId,
+  })

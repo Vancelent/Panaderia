@@ -3,7 +3,17 @@ import logging
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, caja, comercial, finanzas, inventario, produccion, usuarios
+from app.api.v1 import (
+    auth,
+    caja,
+    comercial,
+    contabilidad,
+    finanzas,
+    inventario,
+    produccion,
+    stock,
+    usuarios,
+)
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 
@@ -45,7 +55,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     v1 = APIRouter(prefix="/api/v1")
-    for modulo in (auth, usuarios, caja, inventario, produccion, comercial, finanzas):
+    for modulo in (auth, usuarios, caja, inventario, produccion, comercial, finanzas, contabilidad, stock):
         v1.include_router(modulo.router)
     app.include_router(v1)
 

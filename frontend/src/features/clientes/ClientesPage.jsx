@@ -54,6 +54,12 @@ export default function ClientesPage() {
                 <Button size="icon-sm" variant="ghost" icon={Pencil} aria-label="Editar" onClick={() => setEditando(c)} />
               </div>
               <div className="mt-2 space-y-1 text-sm text-stone-600 dark:text-stone-400">
+                {Number(c.saldo_cuenta_corriente) !== 0 && (
+                  <p className="tabular font-semibold">
+                    Cuenta corriente: {fmtDinero(Math.abs(c.saldo_cuenta_corriente))}{' '}
+                    <span className="text-xs">{c.saldo_cuenta_corriente > 0 ? 'debe' : 'a favor'}</span>
+                  </p>
+                )}
                 {c.telefono && (
                   <a href={`tel:${c.telefono}`} className="flex items-center gap-2 hover:underline">
                     <Phone className="h-3.5 w-3.5" /> {c.telefono}
@@ -87,6 +93,7 @@ function ClienteModal({ cliente, onClose }) {
   const [f, setF] = useState({
     nombre: cliente?.nombre ?? '',
     telefono: cliente?.telefono ?? '',
+    cuit: cliente?.cuit ?? '',
     email: cliente?.email ?? '',
     direccion: cliente?.direccion ?? '',
     notas: cliente?.notas ?? '',
@@ -138,6 +145,9 @@ function ClienteModal({ cliente, onClose }) {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Nombre" className="sm:col-span-2">
           {(id) => <Input id={id} maxLength={120} value={f.nombre} onChange={set('nombre')} />}
+        </Field>
+        <Field label="CUIT">
+          {(id) => <Input id={id} maxLength={20} placeholder="30-12345678-9" value={f.cuit} onChange={set('cuit')} />}
         </Field>
         <Field label="Teléfono">
           {(id) => <Input id={id} type="tel" maxLength={40} value={f.telefono} onChange={set('telefono')} />}

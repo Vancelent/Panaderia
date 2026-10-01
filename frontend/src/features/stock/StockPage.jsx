@@ -13,6 +13,7 @@ import { fmtDinero, fmtNumero } from '../../lib/format'
 import { useMateriasPrimas, useProductos } from '../../lib/queries'
 import { esGestion } from '../../lib/roles'
 import { nivelStock } from '../../lib/stock'
+import DiaAnteriorPanel from './DiaAnteriorPanel'
 
 const ORDEN = { red: 0, amber: 1, green: 2 }
 
@@ -65,19 +66,26 @@ export default function StockPage() {
           options={[
             { value: 'productos', label: 'Mostrador', count: alertas(productos.data, 'stock_mostrador') || null },
             { value: 'insumos', label: 'Insumos', count: alertas(insumos.data, 'stock_actual') || null },
+            ...(gestion ? [{ value: 'dia-anterior', label: 'Día anterior' }] : []),
           ]}
         />
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
-          <Input className="pl-9" placeholder="Buscar…" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
-        </div>
-        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-          <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={soloAlertas} onChange={(e) => setSoloAlertas(e.target.checked)} />
-          Solo alertas
-        </label>
+        {vista !== 'dia-anterior' && (
+          <>
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+              <Input className="pl-9" placeholder="Buscar…" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+              <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={soloAlertas} onChange={(e) => setSoloAlertas(e.target.checked)} />
+              Solo alertas
+            </label>
+          </>
+        )}
       </div>
 
-      {q.isLoading ? (
+      {vista === 'dia-anterior' ? (
+        <DiaAnteriorPanel />
+      ) : q.isLoading ? (
         <PantallaCarga />
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={q.refetch} />

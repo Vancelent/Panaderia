@@ -54,6 +54,8 @@ export default function ProductosPage() {
                 <tr key={p.id} className={p.activo ? '' : 'opacity-50'}>
                   <td className="px-4 py-3 font-semibold">
                     {p.nombre} {!p.activo && <Badge className="ml-1">Inactivo</Badge>}
+                    {p.producto_base_id && <Badge tone="amber" className="ml-1">Día anterior</Badge>}
+                    {p.codigo && <span className="tabular ml-2 text-xs font-medium text-stone-500">#{p.codigo}</span>}
                   </td>
                   <td className="px-4 py-3 text-stone-500">{p.categoria ?? '—'}</td>
                   <td className="tabular px-4 py-3 text-right">{fmtDinero(p.precio_venta)}</td>
@@ -76,6 +78,7 @@ export default function ProductosPage() {
         <ProductoModal
           producto={editando === 'nuevo' ? null : editando}
           categorias={[...new Set((data ?? []).map((p) => p.categoria).filter(Boolean))]}
+          todos={data ?? []}
           onClose={() => setEditando(null)}
         />
       )}
@@ -84,12 +87,14 @@ export default function ProductosPage() {
   )
 }
 
-function ProductoModal({ producto, categorias, onClose }) {
+function ProductoModal({ producto, categorias, todos, onClose }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [f, setF] = useState({
     nombre: producto?.nombre ?? '',
     categoria: producto?.categoria ?? '',
+    codigo: producto?.codigo ?? '',
+    base: producto?.producto_base_id ?? '',
     precio_venta: producto?.precio_venta ?? '',
     stock_minimo: producto?.stock_minimo ?? 0,
     stock_mostrador: 0,
@@ -101,6 +106,8 @@ function ProductoModal({ producto, categorias, onClose }) {
       const base = {
         nombre: f.nombre.trim(),
         categoria: f.categoria.trim() || null,
+        codigo: f.codigo.trim() || null,
+        producto_base_id: f.base ? Number(f.base) : null,
         precio_venta: Number(f.precio_venta),
         stock_minimo: Number(f.stock_minimo) || 0,
       }
@@ -147,6 +154,23 @@ function ProductoModal({ producto, categorias, onClose }) {
                 ))}
               </datalist>
             </>
+          )}
+        </Field>
+        <Field label="Código" hint="Para cargarlo rápido en la caja. Opcional.">
+          {(id) => <Input id={id} maxLength={12} autoComplete="off" value={f.codigo} onChange={set('codigo')} />}
+        </Field>
+        <Field label="Es variante de" hint="Solo para el pan del día anterior.">
+          {(id) => (
+            <Select id={id} value={f.base} onChange={set('base')}>
+              <option value="">No es una variante</option>
+              {todos
+                .filter((t) => t.id !== producto?.id && !t.producto_base_id && t.activo)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nombre}
+                  </option>
+                ))}
+            </Select>
           )}
         </Field>
         <Field label="Precio de venta">

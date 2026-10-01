@@ -5,6 +5,7 @@ from app.core.errors import NotFoundError
 from app.models import Arqueo, Venta
 from app.schemas.caja import (
     ArqueoOut,
+    MediosPagoOut,
     TurnoAbrir,
     TurnoCerrar,
     TurnoCierreOut,
@@ -21,6 +22,11 @@ def _venta_out(v: Venta) -> dict:
     return {
         "id": v.id, "turno_id": v.turno_id, "fecha": v.fecha, "metodo_pago": v.metodo_pago,
         "monto": v.monto, "cliente_id": v.cliente_id,
+        "pagos": [
+            {"metodo_pago": p.metodo_pago, "monto": p.monto, "referencia": p.referencia,
+             "estado": p.estado}
+            for p in v.pagos
+        ],
         "detalles": [
             {"producto_id": d.producto_id, "nombre": d.producto.nombre, "cantidad": d.cantidad,
              "precio_unitario": d.precio_unitario, "subtotal": d.subtotal}
@@ -35,7 +41,8 @@ def _arqueo_out(a: Arqueo) -> dict:
         "id": a.id, "turno_id": t.id, "usuario": t.usuario.username,
         "fecha_apertura": t.fecha_apertura, "fecha_cierre": t.fecha_cierre,
         "efectivo_inicial": t.efectivo_inicial, "ventas_efectivo": a.ventas_efectivo,
-        "ventas_otros_medios": a.ventas_otros_medios, "monto_sistema": a.monto_sistema,
+        "ventas_otros_medios": a.ventas_otros_medios, "cobros_efectivo": a.cobros_efectivo,
+        "monto_sistema": a.monto_sistema,
         "monto_declarado": a.monto_declarado, "diferencia": a.diferencia,
     }
 
@@ -103,6 +110,15 @@ def registrar_venta(datos: VentaCreate, usuario: Mostrador, db: DB):
         turno=turno,
         items=[(i.producto_id, i.cantidad) for i in datos.items],
         metodo_pago=datos.metodo_pago,
+        pagos=[svc.PagoEntrada(p.metodo_pago, p.monto, p.referencia) for p in datos.pagos]
+        if datos.pagos
+        else None,
         cliente_id=datos.cliente_id,
     )
     return _venta_out(svc.obtener_venta(db, venta.id))
+
+
+@router.get("/medios-pago", response_model=MediosPagoOut)
+def medios_de_pago(_: Mostrador):
+    """Medios que ofrece la caja. La cuenta corriente se suma cuando la venta tiene cliente."""
+    return {"habilitados": svc.medios_habilitados(), "cuenta_corriente": True}

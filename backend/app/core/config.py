@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.models.enums import MetodoPagoEnum
+
 
 class Settings(BaseSettings):
     """Configuración leída de variables de entorno (o de un archivo .env).
@@ -33,6 +35,16 @@ class Settings(BaseSettings):
     # Zona horaria del local: define qué es "hoy" en reportes y agrupaciones diarias.
     zona_horaria: str = "America/Argentina/Buenos_Aires"
 
+    # Medios que muestra la caja (nombres del enum, separados por coma). La cuenta corriente
+    # no se lista acá: se ofrece siempre que la venta tenga un cliente.
+    medios_pago_habilitados: Annotated[list[MetodoPagoEnum], NoDecode] = Field(
+        default_factory=lambda: [
+            MetodoPagoEnum.EFECTIVO,
+            MetodoPagoEnum.TRANSFERENCIA,
+            MetodoPagoEnum.TARJETA,
+        ]
+    )
+
     login_max_intentos: int = 5
     login_ventana_segundos: int = 300
 
@@ -41,6 +53,19 @@ class Settings(BaseSettings):
     def _split_origins(cls, v):
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
+    @field_validator("medios_pago_habilitados", mode="before")
+    @classmethod
+    def _parsear_medios(cls, v):
+        # Acepta "EFECTIVO,TRANSFERENCIA" (nombres del enum, sin importar mayúsculas)
+        if isinstance(v, str):
+            nombres = [n.strip().upper() for n in v.split(",") if n.strip()]
+            try:
+                return [MetodoPagoEnum[n] for n in nombres]
+            except KeyError as e:
+                validos = ", ".join(m.name for m in MetodoPagoEnum)
+                raise ValueError(f"Medio de pago desconocido {e}. Válidos: {validos}") from None
         return v
 
     @field_validator("database_url")

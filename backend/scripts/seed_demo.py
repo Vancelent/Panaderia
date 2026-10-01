@@ -36,8 +36,10 @@ from app.models import (
     Turno,
     Usuario,
     Venta,
+    VentaPago,
 )
 
+MEDIOS = [MetodoPagoEnum.EFECTIVO, MetodoPagoEnum.TARJETA, MetodoPagoEnum.TRANSFERENCIA]
 get_engine()
 random.seed(7)
 with SessionLocal() as s:
@@ -135,7 +137,7 @@ with SessionLocal() as s:
         s.flush()
         tot_ef = D(0)
         for k in range(random.randint(8, 22)):
-            m = random.choices(list(MetodoPagoEnum), weights=[6, 2, 3])[0]
+            m = random.choices(MEDIOS, weights=[6, 2, 3])[0]
             v = Venta(
                 turno_id=t.id,
                 usuario_id=vend.id,
@@ -152,6 +154,7 @@ with SessionLocal() as s:
                     DetalleVenta(producto_id=p.id, cantidad=c, precio_unitario=p.precio_venta, subtotal=sub)
                 )
             v.monto = tot
+            v.pagos.append(VentaPago(metodo_pago=m, monto=tot))
             s.add(v)
             if m == MetodoPagoEnum.EFECTIVO:
                 tot_ef += tot

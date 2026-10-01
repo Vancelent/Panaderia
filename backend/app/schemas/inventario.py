@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.schemas.common import (
     CantidadInsumo,
@@ -15,10 +16,20 @@ from app.schemas.common import (
 
 # ---------- Productos ----------
 
+# Código de carga rápida: letras, números y guiones; se normaliza a mayúsculas
+Codigo = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, to_upper=True, min_length=1, max_length=12,
+                      pattern=r"^[A-Za-z0-9._-]+$"),
+]
+
 
 class ProductoBase(BaseModel):
     nombre: Texto
     categoria: Texto | None = None
+    codigo: Codigo | None = None
+    # Si es la variante "día anterior" de otro producto, id del producto fresco
+    producto_base_id: int | None = None
     precio_venta: DineroPositivo
     stock_minimo: int = Field(default=0, ge=0, le=100_000)
 
@@ -30,6 +41,8 @@ class ProductoCreate(ProductoBase):
 class ProductoUpdate(BaseModel):
     nombre: Texto | None = None
     categoria: Texto | None = None
+    codigo: Codigo | None = None
+    producto_base_id: int | None = None
     precio_venta: DineroPositivo | None = None
     stock_minimo: int | None = Field(default=None, ge=0, le=100_000)
     activo: bool | None = None
@@ -39,6 +52,8 @@ class ProductoOut(ORMModel):
     id: int
     nombre: str
     categoria: str | None
+    codigo: str | None
+    producto_base_id: int | None
     precio_venta: DineroOut
     stock_mostrador: int
     stock_minimo: int
@@ -146,3 +161,47 @@ class MermaOut(ORMModel):
     cantidad_perdida: int
     motivo: str
     fecha_hora: datetime
+
+
+# ---------- Pan del día anterior ----------
+
+
+class ItemDiaAnterior(BaseModel):
+    producto_id: int                        # el producto fresco (base)
+    cantidad: Unidades
+
+
+class DiaAnteriorIn(BaseModel):
+    items: list[ItemDiaAnterior] = Field(min_length=1, max_length=100)
+    motivo: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
+
+
+class VarianteDiaAnteriorOut(BaseModel):
+    producto_id: int
+    nombre: str
+    stock_mostrador: int
+    stock_disponible: int                   # lo que se puede pasar (descuenta lo reservado)
+    variante_id: int
+    variante_nombre: str
+    variante_stock: int
+    variante_precio: DineroOut
+
+
+class ConversionOut(BaseModel):
+    id: int
+    producto_id: int
+    producto: str
+    variante_id: int
+    variante: str
+    cantidad: int
+    usuario: str
+    fecha: datetime
+    motivo: str | None
+    revierte_id: int | None
+    revertida: bool                         # ya tiene una reversión
+    se_puede_revertir: bool                 # del día de hoy, no revertida y no es una reversión
+
+
+class DiaAnteriorOut(BaseModel):
+    productos: list[VarianteDiaAnteriorOut]
+    conversiones_hoy: list[ConversionOut]

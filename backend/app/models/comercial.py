@@ -17,9 +17,13 @@ class Cliente(Base):
     telefono: Mapped[str | None] = mapped_column(String(40))
     email: Mapped[str | None] = mapped_column(String(120))
     direccion: Mapped[str | None] = mapped_column(String(200))
+    cuit: Mapped[str | None] = mapped_column(String(20))
     notas: Mapped[str | None] = mapped_column(Text)
     activo: Mapped[bool] = mapped_column(default=True, server_default="true")
     creado_en: Mapped[datetime] = mapped_column(default=utcnow)
+    # Saldo cacheado de la cuenta corriente (+ = el cliente debe). Se actualiza bajo
+    # FOR UPDATE de esta fila, junto con el movimiento que lo cambia.
+    saldo_cuenta_corriente: Mapped[Decimal] = mapped_column(default=Decimal("0"), server_default="0")
 
 
 class Pedido(Base):
