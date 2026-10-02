@@ -1,0 +1,35 @@
+# Tareas programadas del servidor (docs/rfc-001 §7.2 y §7.6). Se instalan en el `cron` del HOST,
+# con el usuario que maneja Docker (el mismo con el que se hizo el despliegue):
+#
+#   mkdir -p /var/log/panaderia /var/backups/panaderia
+#   crontab -e          # y pegar lo de abajo, ajustando REPO y las variables
+#
+# Cada tarea escribe su salida en un log; los comandos de verificación salen con código 1 si
+# encuentran diferencias, así se pueden vigilar con un monitor o con MAILTO.
+# Rotación de los logs: docs/despliegue.md.
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+# MAILTO=admin@ejemplo.com          # cron manda por mail lo que salga por stderr (requiere un MTA)
+
+# --- Ajustar ---
+REPO=/opt/panaderia
+BACKUP_DIR=/var/backups/panaderia
+# RCLONE_REMOTE=b2:panaderia-backups        # copia fuera del servidor (recomendado)
+# BACKUP_PING_URL=https://hc-ping.com/<uuid> # aviso a un monitor si el respaldo NO corrió
+
+# m  h  dom mon dow  comando
+# Respaldo de la base: todos los días 03:15 (dump verificado, rotación de 14 copias, copia externa)
+15 3  *   *   *    $REPO/deploy/backup.sh >> /var/log/panaderia/backup.log 2>&1
+
+# Retención de la traza GPS (90 días): crea la partición del mes siguiente y elimina las vencidas
+30 3  *   *   *    cd $REPO && docker compose -f docker-compose.prod.yml exec -T api python -m app.cli mantenimiento-gps >> /var/log/panaderia/gps.log 2>&1
+
+# Verificaciones diarias: el saldo de cada cuenta corriente contra su libro, y el stock reservado
+# contra las hojas de ruta confirmadas
+0  4  *   *   *    cd $REPO && docker compose -f docker-compose.prod.yml exec -T api python -m app.cli verificar-saldos >> /var/log/panaderia/verificaciones.log 2>&1
+5  4  *   *   *    cd $REPO && docker compose -f docker-compose.prod.yml exec -T api python -m app.cli verificar-reservas >> /var/log/panaderia/verificaciones.log 2>&1
+
+# Prueba de restauración: el día 1 de cada mes, 05:00 (restaura el último respaldo en una base
+# vacía y compara los totales con producción)
+0  5  1   *   *    $REPO/deploy/restore.sh >> /var/log/panaderia/restauracion.log 2>&1

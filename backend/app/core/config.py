@@ -2,7 +2,7 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.models.enums import MetodoPagoEnum
@@ -25,6 +25,10 @@ class Settings(BaseSettings):
 
     cookie_name: str = "panaderia_session"
     csrf_cookie_name: str = "panaderia_csrf"
+    # "__Host-" en producción: el navegador solo acepta esa cookie si es Secure, sin Domain y con
+    # Path=/, lo que bloquea el "cookie tossing" desde subdominios (docs/rfc-001 D7). Se antepone
+    # al nombre de las cookies de sesión y CSRF; el frontend las busca con o sin el prefijo.
+    cookie_prefix: Literal["", "__Host-"] = ""
     csrf_header_name: str = "X-CSRF-Token"
     # En producción detrás de HTTPS debe ser True.
     cookie_secure: bool = False
@@ -54,6 +58,11 @@ class Settings(BaseSettings):
     retencion_gps_dias: int = Field(default=90, ge=7, le=3650)
     # Una entrega confirmada a más de esta distancia del punto cargado se marca como alerta
     alerta_distancia_entrega_m: int = Field(default=300, ge=50, le=5000)
+
+    # Conexiones a la base por proceso (pool + desborde). Con 1 worker y `max_connections=15` en
+    # Postgres, 4 + 2 deja margen para mantenimiento y para `psql`. Solo aplica a PostgreSQL.
+    db_pool_size: int = Field(default=5, ge=1, le=50)
+    db_max_overflow: int = Field(default=10, ge=0, le=50)
 
     login_max_intentos: int = 5
     login_ventana_segundos: int = 300
@@ -85,6 +94,19 @@ class Settings(BaseSettings):
                 validos = ", ".join(m.name for m in MetodoPagoEnum)
                 raise ValueError(f"Medio de pago desconocido {e}. Válidos: {validos}") from None
         return v
+
+    @model_validator(mode="after")
+    def _prefijo_de_cookies(self):
+        if self.cookie_prefix == "__Host-":
+            if not self.cookie_secure:
+                raise ValueError(
+                    "COOKIE_PREFIX=__Host- exige COOKIE_SECURE=true (el navegador rechaza la cookie)."
+                )
+            if not self.cookie_name.startswith("__Host-"):
+                self.cookie_name = f"__Host-{self.cookie_name}"
+            if not self.csrf_cookie_name.startswith("__Host-"):
+                self.csrf_cookie_name = f"__Host-{self.csrf_cookie_name}"
+        return self
 
     @field_validator("database_url")
     @classmethod

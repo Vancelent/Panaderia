@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado** | v3 aprobado · Fases 1 y 2 implementadas |
+| **Estado** | v3 aprobado · Fases 1 y 2 implementadas · Fase 3 implementada y probada localmente con Docker (falta el VPS real) |
 | **Fecha** | 2026-09-30 |
 | **Base** | Rama `modernizacion` (commit `fc4b34b`) · ver [`arquitectura.md`](arquitectura.md) |
 | **Alcance** | Backend FastAPI, infraestructura, cliente web (caja y contabilidad) y app móvil universal |
@@ -14,7 +14,7 @@
 | v1 | Reparto matutino, despliegue con Cloudflare y app móvil para repartidor y monitoreo |
 | v2 | **Autenticación híbrida** (Google + PIN de caja) · **caja orientada a teclado** · **puntos de entrega** con descuentos por local en el módulo contable · **cuenta corriente simple, sin límite de crédito** · **app móvil universal** · **infraestructura low-cost** (VPS chico o Proxmox) · **ruta sugerida no obligatoria y registro del recorrido real** |
 | v3 | **Medios de pago preparados** para tarjeta y QR con pagos mixtos (`ventas_pagos`) · **"Pasar a día anterior" como ajuste manual** de la encargada, auditado · **traza GPS obligatoria** con **retención de 90 días** por particiones mensuales · despliegue principal en **VPS con dominio público** (Google siempre disponible) · preguntas P4–P6 resueltas |
-| v3.1 | **Fase 2 implementada**: ajustes de diseño surgidos al implementar y probar contra PostgreSQL (bloqueo de la hoja en las confirmaciones, clave de `recorrido_puntos`, `inicio-ruta`, códigos de error nuevos). Ver [Fase 2 · notas de implementación](#fase-2--notas-de-implementación) |
+| v3.1 | **Fases 2 y 3 implementadas**: ajustes de diseño surgidos al implementar y probar contra PostgreSQL (bloqueo de la hoja en las confirmaciones, clave de `recorrido_puntos`, `inicio-ruta`, códigos de error nuevos). Ver [Fase 2 · notas de implementación](#fase-2--notas-de-implementación) |
 
 ## Índice
 
@@ -1427,6 +1427,30 @@ Operación:
 | Tocar | `app/core/config.py` (`cookie_prefix`, pool, proxies de confianza) · `app/db/session.py` (tamaño del pool) · `app/api/v1/auth.py` (nombres de cookie) · `frontend/src/lib/api.js` · `.env.example` · `README.md` |
 | Crear | `docker-compose.prod.yml` · `deploy/web.Dockerfile` · `deploy/Caddyfile` · `deploy/backup.sh` · `deploy/crontab.ejemplo` (backup, mantenimiento GPS, verificaciones) · `docs/despliegue.md` (VPS con dominio, túnel, Cloudflare, registro de la URL de Google, Proxmox como alternativa, restauración) |
 | Verificación | el VPS no tiene puertos 80/443 abiertos y la app responde por el dominio; medir la RAM real con `docker stats` durante un día de uso simulado; restaurar un backup en una base vacía |
+
+#### Fase 3 · notas de implementación
+
+Archivos: `docker-compose.prod.yml`, `deploy/web.Dockerfile` (+ su `.dockerignore`), `deploy/Caddyfile`, `deploy/backup.sh`, `deploy/restore.sh`, `deploy/crontab.ejemplo`, `docs/despliegue.md`, `.gitattributes`. Código: `cookie_prefix` y pool en `core/config.py` / `db/session.py`, nombres de cookie en `api/v1/auth.py`, lectura de la cookie CSRF en `frontend/src/lib/api.js`, y los comandos `verificar-saldos` y `verificar-reservas` de `app/cli.py`. Diferencias con el diseño de §7:
+
+| Tema | Diseño original | Implementado | Motivo |
+|---|---|---|---|
+| Nombre del proyecto compose | `name: panaderia` | `name: panaderia-prod` | El compose de desarrollo ya es el proyecto `panaderia` y tiene servicios `db` y `web`: con el mismo nombre, levantar producción en esa máquina habría recreado los contenedores de desarrollo |
+| Archivo de variables | `env_file: .env` | `env_file: ${ENV_FILE:-.env}` | Permite probar la imagen de producción con otro archivo sin tocar el `.env` real |
+| `CLOUDFLARE_TUNNEL_TOKEN` | `${…:?}` (obligatoria) | `${…:-}` | Compose valida las variables obligatorias aunque el servicio esté en un perfil inactivo: obligarla impedía levantar el sistema sin túnel |
+| Proxies de confianza | ajuste en `core/config.py` | sin ajuste en la app: `--forwarded-allow-ips` de uvicorn y `trusted_proxies` de Caddy, ambos con la red `borde` | La app no lee esa lista en ningún lado; el filtrado ocurre en uvicorn |
+| Borrado de cookies | — | `delete_cookie` con los mismos atributos que `set_cookie` (`Secure`, `SameSite`) | Una cookie `__Host-` borrada sin `Secure` la rechaza el navegador y el logout no cerraba la sesión |
+| Nombres de cookie en el frontend | prefijo fijo | el frontend busca `__Host-panaderia_csrf` y, si no está, `panaderia_csrf` | El mismo build sirve en desarrollo y en producción |
+| CSP | no definida | CSP estricta en el Caddyfile (scripts solo del propio origen). El script del tema de `index.html` pasó a `public/tema.js` | Una CSP sin `unsafe-inline` en scripts no permite el `<script>` inline |
+| `web` | sin healthcheck | healthcheck sobre `/api/health`, `cap_drop: ALL` + `NET_BIND_SERVICE`, `tmpfs` en `/config` | Endurecimiento y estado visible en `docker compose ps` |
+| `api` y `db` | — | `start_period` en los healthchecks | La primera vez se aplican todas las migraciones |
+| Tareas del cron | "verificar saldos y reservas" | comandos `verificar-saldos` y `verificar-reservas` (salen con código 1 si hay diferencias) | `verificar_saldos` existía solo como servicio; las reservas se comparan con las hojas confirmadas |
+| Refresh tokens vencidos | tarea diaria del cron | **no incluida** | Los refresh tokens se crean en la Fase 4 |
+| Restauración | procedimiento en `docs/despliegue.md` | además `deploy/restore.sh` (restaura en una base temporal y compara totales con producción; se niega a tocar la base de producción) | Para poder hacer la prueba mensual con un comando |
+| Fin de línea | — | `.gitattributes` fuerza LF en scripts, Caddyfile y Dockerfiles | En Windows, un script con CRLF falla en Linux |
+
+Verificado en una PC con Docker (imágenes construidas y stack levantado sin túnel): los tres contenedores quedan `healthy`; las 5 migraciones corren sobre `postgres:15-alpine`; Caddy sirve la SPA (con fallback de rutas), bloquea `/api/docs`, aplica CSP y cachea `/assets` como `immutable`; el login emite cookies `__Host-` (`Secure`, `HttpOnly`, `SameSite=Strict`) y el logout las borra; el límite de intentos distingue IPs (la IP real llega desde Caddy hasta uvicorn); `api` y `web` tienen el sistema de archivos de solo lectura; la base no tiene salida a Internet; el pool es 4 + 2; `backup.sh` (con rotación) y `restore.sh` funcionan; `mantenimiento-gps`, `verificar-saldos` y `verificar-reservas` corren en el contenedor; y el mapa carga los mosaicos de OpenStreetMap bajo la CSP. Memoria en reposo: `api` 76 MiB, `db` 33 MiB, `web` 11 MiB. Al probar se corrigieron dos errores de `backup.sh` y `restore.sh` (`pipefail` con `grep -q`, y `flock` ausente fuera de Linux).
+
+Pendiente de la verificación de §11, que requiere el servidor real: puertos 80/443 cerrados con la app respondiendo por el dominio, el túnel con un token verdadero (el contenedor arranca, pero falla sin token), medición de RAM con `docker stats` durante un día de uso y la copia externa con rclone.
 
 ### Fase 4 · Autenticación híbrida y caja por teclado
 

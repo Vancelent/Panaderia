@@ -55,8 +55,14 @@ def _set_session_cookies(response: Response, usuario: Usuario) -> None:
 
 def _clear_session_cookies(response: Response) -> None:
     s = get_settings()
-    response.delete_cookie(s.cookie_name, path="/")
-    response.delete_cookie(s.csrf_cookie_name, path="/")
+    # Los atributos tienen que coincidir con los de set_cookie: una cookie `__Host-` borrada sin
+    # `Secure` es rechazada por el navegador y la sesión no se cierra.
+    response.delete_cookie(
+        s.cookie_name, path="/", secure=s.cookie_secure, httponly=True, samesite="strict"
+    )
+    response.delete_cookie(
+        s.csrf_cookie_name, path="/", secure=s.cookie_secure, httponly=False, samesite="strict"
+    )
 
 
 @router.post("/login", response_model=UsuarioOut)

@@ -3,10 +3,17 @@ import axios from 'axios'
 const CSRF_COOKIE = 'panaderia_csrf'
 const CSRF_HEADER = 'X-CSRF-Token'
 const METODOS_SEGUROS = new Set(['get', 'head', 'options'])
+// En producción el servidor antepone "__Host-" al nombre (COOKIE_PREFIX): se acepta con o sin él,
+// así el mismo build sirve en desarrollo y en producción.
+const PREFIJOS_COOKIE = ['__Host-', '']
 
 function leerCookie(nombre) {
-  const par = document.cookie.split('; ').find((c) => c.startsWith(`${nombre}=`))
-  return par ? decodeURIComponent(par.slice(nombre.length + 1)) : null
+  for (const prefijo of PREFIJOS_COOKIE) {
+    const completo = `${prefijo}${nombre}`
+    const par = document.cookie.split('; ').find((c) => c.startsWith(`${completo}=`))
+    if (par) return decodeURIComponent(par.slice(completo.length + 1))
+  }
+  return null
 }
 
 // La sesión viaja en una cookie httpOnly que JavaScript no puede leer.

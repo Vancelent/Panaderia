@@ -14,13 +14,21 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
 from app.db.base import utcnow
-from app.models import ConversionDiaAnterior, MateriaPrima, Producto, Usuario
+from app.models import (
+    ConversionDiaAnterior,
+    EstadoHojaRutaEnum,
+    HojaRuta,
+    HojaRutaItem,
+    MateriaPrima,
+    Producto,
+    Usuario,
+)
 
 
 def agrupar(items: Iterable[tuple[int, int]]) -> dict[int, int]:
@@ -166,6 +174,34 @@ def reingresar_devolucion(productos: dict[int, Producto], cantidades: dict[int, 
     """Suma al mostrador lo que volvió del reparto en condiciones de venderse."""
     for pid, cant in cantidades.items():
         productos[pid].stock_mostrador += cant
+
+
+def verificar_reservas(db: Session) -> list[dict]:
+    """Compara `stock_reservado` de cada producto con lo reservado por las hojas CONFIRMADAS.
+
+    Es la única fuente de reservas: una hoja confirmada reserva, y cargarla, reabrirla o
+    anularla libera. Devuelve solo las diferencias (lista vacía = todo consistente). Pensado para
+    el `cron` diario (`python -m app.cli verificar-reservas`).
+    """
+    esperado = dict(
+        db.execute(
+            select(HojaRutaItem.producto_id, func.sum(HojaRutaItem.cantidad_reservada))
+            .join(HojaRuta, HojaRuta.id == HojaRutaItem.hoja_id)
+            .where(HojaRuta.estado == EstadoHojaRutaEnum.CONFIRMADA)
+            .group_by(HojaRutaItem.producto_id)
+        ).all()
+    )
+    diferencias = []
+    for p in db.scalars(select(Producto).order_by(Producto.id)):
+        esperada = int(esperado.get(p.id) or 0)
+        if p.stock_reservado != esperada:
+            diferencias.append(
+                {
+                    "producto_id": p.id, "nombre": p.nombre,
+                    "reservado": p.stock_reservado, "esperado": esperada,
+                }
+            )
+    return diferencias
 
 
 # ---------- Pan del día anterior ----------

@@ -8,7 +8,7 @@ gastos y tablero financiero.
 |---|---|
 | Backend | FastAPI · SQLAlchemy 2 · PostgreSQL 15 · Alembic · PyJWT · bcrypt |
 | Frontend | React 19 · Vite · Tailwind CSS · TanStack Query · React Router |
-| Infra | Docker Compose |
+| Infra | Docker Compose · Caddy · Cloudflare Tunnel (producción) |
 
 ## Puesta en marcha
 
@@ -23,6 +23,20 @@ docker compose exec web python -m app.cli crear-admin <usuario>
 
 Las migraciones se aplican solas al arrancar el contenedor `web`. Una base creada con la
 versión anterior (sin Alembic) se detecta y se migra conservando los datos.
+
+### Producción
+
+Un VPS de 1 vCPU / 1 GB con dominio propio, publicado por Cloudflare Tunnel (sin puertos abiertos):
+
+```bash
+cp .env.example .env        # POSTGRES_PASSWORD, JWT_SECRET y CLOUDFLARE_TUNNEL_TOKEN
+docker compose -f docker-compose.prod.yml --profile tunnel up -d --build
+docker compose -f docker-compose.prod.yml exec api python -m app.cli crear-admin <usuario>
+```
+
+Cuatro contenedores con límites de memoria (PostgreSQL afinado, API con 1 worker, Caddy y `cloudflared`),
+respaldos diarios verificados y tareas programadas. Guía completa (servidor, dominio, Cloudflare,
+respaldos, restauración y cómo probarlo en tu PC): [`docs/despliegue.md`](docs/despliegue.md).
 
 ### Desarrollo sin Docker
 
@@ -42,7 +56,7 @@ Datos de ejemplo (solo sobre una base **vacía**): `python -m scripts.seed_demo`
 
 ```bash
 cd backend
-pytest                                   # SQLite temporal
+pytest                                   # SQLite temporal (los tests de PostgreSQL se omiten)
 TEST_DATABASE_URL=postgresql://... pytest  # Postgres (incluye test de concurrencia)
 ruff check app tests
 alembic check                            # modelos == migraciones
@@ -78,6 +92,7 @@ Todas las respuestas de error tienen la forma `{"error": {"code", "message", "de
 | Encargada | Todo excepto usuarios: tablero, arqueos, productos, compras, gastos |
 | Vendedora | Caja, pedidos (crear, cobrar), clientes, stock (lectura), mermas |
 | Panadero | Producción, pedidos (mover estados), stock (lectura), mermas |
+| Repartidor | Solo su hoja de ruta (vista de lectura en la web; entregas y cobros desde la app móvil) |
 
 La autorización se aplica en el backend; el frontend solo adapta la navegación.
 
@@ -90,5 +105,6 @@ La autorización se aplica en el backend; el frontend solo adapta la navegación
 - Arqueo ciego: el cajero declara el efectivo contado y nunca ve la diferencia.
 - Montos en `NUMERIC`; el precio de cada venta lo calcula el servidor.
 - Bloqueo de filas (`SELECT … FOR UPDATE`) al mover stock: dos cajas no pueden vender la misma unidad.
-- En producción: `ENV=production`, `COOKIE_SECURE=true` detrás de HTTPS y un reverse proxy que sirva
-  el build del frontend y `/api` en el mismo dominio.
+- En producción (`docker-compose.prod.yml`): `ENV=production`, cookies `__Host-` y `Secure`, Caddy sirviendo
+  el build y `/api` en el mismo origen con CSP estricta, base de datos en una red sin salida a Internet y
+  sin documentación de la API. Detalle en [`docs/despliegue.md`](docs/despliegue.md#9-cómo-se-protege).

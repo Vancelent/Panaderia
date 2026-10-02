@@ -1,0 +1,162 @@
+# Producción low-cost (docs/rfc-001 §7.3): un VPS de 1 vCPU / 1 GB, publicado por Cloudflare Tunnel.
+#
+#   cp .env.example .env              # y completá las variables de producción
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml --profile tunnel up -d    # con el túnel (en el VPS)
+#
+# Paso a paso, DNS, Cloudflare y respaldos: docs/despliegue.md
+
+# Nombre propio: si en la misma máquina corre el compose de desarrollo (docker-compose.yml, proyecto
+# "panaderia"), los contenedores y volúmenes de ambos no se pisan.
+name: panaderia-prod
+
+x-base: &base
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: local                       # binario, comprimido y con rotación
+    options: { max-size: "5m", max-file: "3" }
+
+services:
+  db:
+    <<: *base
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Definí POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Definí POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_panaderia}
+    # Afinado para ~300 MB. `fsync` y `synchronous_commit` quedan activados (hay dinero en juego).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=80MB
+      - -c
+      - effective_cache_size=200MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=15
+      - -c
+      - max_wal_size=256MB
+      - -c
+      - min_wal_size=64MB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - autovacuum_max_workers=2
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - jit=off
+      - -c
+      - log_min_duration_statement=500
+    shm_size: 64m
+    volumes: [pgdata:/var/lib/postgresql/data]
+    networks: [interna]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "0.75", memory: 320M }
+
+  api:
+    <<: *base
+    build: ./backend
+    image: panaderia-api:${VERSION:-latest}
+    # ENV_FILE permite usar otro archivo (p. ej. para probar sin tocar el .env real)
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      ENV: production
+      COOKIE_SECURE: "true"
+      COOKIE_PREFIX: "__Host-"
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-erp_panaderia}
+      DB_POOL_SIZE: "4"
+      DB_MAX_OVERFLOW: "2"
+      MALLOC_ARENA_MAX: "2"             # menos fragmentación de memoria en glibc
+      PYTHONDONTWRITEBYTECODE: "1"
+    # Las migraciones se aplican solas al arrancar. 1 worker: alcanza para decenas de puestos y el
+    # límite de intentos de login vive en memoria (requiere un único proceso).
+    # `--forwarded-allow-ips` acepta la IP real solo de la red `borde` (Caddy / cloudflared).
+    command:
+      - sh
+      - -c
+      - >-
+        python -m app.db.migrate &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+        --workers 1 --proxy-headers --forwarded-allow-ips=172.30.0.0/24
+        --no-access-log --timeout-graceful-shutdown 10
+    read_only: true
+    tmpfs: ["/tmp:size=16m"]
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [interna, borde]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s                 # la primera vez aplica todas las migraciones
+    deploy:
+      resources:
+        limits: { cpus: "0.75", memory: 256M }
+
+  web:
+    <<: *base
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile   # etapa 1: vite build · etapa 2: caddy:2-alpine + dist/
+    image: panaderia-web:${VERSION:-latest}
+    environment:
+      GOMEMLIMIT: 48MiB
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    read_only: true
+    tmpfs: ["/tmp:size=8m", "/config:size=1m"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]         # escuchar en el puerto 80 sin ser root pleno
+    # Solo local / diagnóstico: el acceso público entra por el túnel y el firewall no abre 80/443.
+    ports: ["127.0.0.1:8080:80"]
+    depends_on: [api]
+    networks: [borde]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 64M }
+
+  cloudflared:
+    <<: *base
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:2026.9.0   # versión fija
+    command: tunnel --no-autoupdate run
+    environment:
+      # Vacío = el contenedor falla con un mensaje claro; no se exige para los demás servicios
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      GOMEMLIMIT: 48MiB
+    depends_on: [web]
+    networks: [borde]
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 64M }
+
+networks:
+  interna:
+    internal: true                      # la base no tiene salida a Internet
+  borde:
+    ipam:
+      config: [{ subnet: 172.30.0.0/24 }]
+
+volumes:
+  pgdata:
+  caddy_data:

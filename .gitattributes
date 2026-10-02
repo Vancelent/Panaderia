@@ -1,0 +1,9 @@
+# Los scripts, el Caddyfile y los Dockerfiles se ejecutan en Linux: siempre con fin de línea LF,
+# aunque se clonen en Windows (con CRLF fallan con "bash\r: No such file or directory").
+*.sh text eol=lf
+deploy/Caddyfile text eol=lf
+deploy/crontab.ejemplo text eol=lf
+deploy/*.Dockerfile text eol=lf
+deploy/*.dockerignore text eol=lf
+Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
