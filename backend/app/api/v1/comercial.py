@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Query, status
 
-from app.api.deps import DB, CurrentUser, Mostrador
+from app.api.deps import DB, Interno, Mostrador
 from app.models import EstadoPedidoEnum, Pedido
 from app.schemas.comercial import (
     CambioEstadoPedido,
@@ -38,7 +38,7 @@ def _pedido_out(p: Pedido) -> dict:
 
 @router.get("/pedidos", response_model=list[PedidoOut])
 def listar_pedidos(
-    _: CurrentUser,
+    _: Interno,
     db: DB,
     estado: list[EstadoPedidoEnum] | None = Query(None),
     desde: date | None = None,
@@ -56,7 +56,7 @@ def listar_pedidos(
 
 
 @router.get("/pedidos/{pedido_id}", response_model=PedidoOut)
-def ver_pedido(pedido_id: int, _: CurrentUser, db: DB):
+def ver_pedido(pedido_id: int, _: Interno, db: DB):
     return _pedido_out(pedidos.obtener(db, pedido_id))
 
 
@@ -71,7 +71,7 @@ def editar_pedido(pedido_id: int, datos: PedidoUpdate, _: Mostrador, db: DB):
 
 
 @router.post("/pedidos/{pedido_id}/estado", response_model=PedidoOut)
-def cambiar_estado(pedido_id: int, datos: CambioEstadoPedido, usuario: CurrentUser, db: DB):
+def cambiar_estado(pedido_id: int, datos: CambioEstadoPedido, usuario: Interno, db: DB):
     return _pedido_out(pedidos.cambiar_estado(db, pedido_id, datos.estado, usuario))
 
 

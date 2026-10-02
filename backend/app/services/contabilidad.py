@@ -187,12 +187,19 @@ def _aplicar(
 
 
 def registrar_cargo_venta(
-    db: Session, cliente: Cliente, venta: Venta, monto: Decimal, usuario: Usuario
+    db: Session,
+    cliente: Cliente,
+    venta: Venta,
+    monto: Decimal,
+    usuario: Usuario,
+    punto_entrega_id: int | None = None,
 ) -> MovimientoCuentaCorriente:
-    """Cargo por la parte de una venta que quedó a cuenta. Lo llama la caja, con el cliente bloqueado."""
+    """Cargo por la parte de una venta que quedó a cuenta. Lo llaman la caja y el reparto, con el
+    cliente ya bloqueado."""
     return _aplicar(
         db, cliente, usuario, Tipo.CARGO, monto,
         venta_id=venta.id, turno_id=venta.turno_id, observacion=f"Venta #{venta.id}",
+        punto_entrega_id=punto_entrega_id,
     )
 
 

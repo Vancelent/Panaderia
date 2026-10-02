@@ -22,6 +22,7 @@ from app.main import app  # noqa: E402
 from app.models import MateriaPrima, Producto, RecetaInsumo, RolEnum, Usuario  # noqa: E402
 
 PASSWORD = "clave-segura-123"
+API = "/api/v1"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -29,6 +30,13 @@ def _schema():
     engine = get_engine()
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        # La tabla de la traza GPS está particionada: create_all solo crea la tabla madre.
+        # En producción la partición DEFAULT la crea la migración 0005.
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "CREATE TABLE recorrido_puntos_default PARTITION OF recorrido_puntos DEFAULT"
+            )
     yield
     Base.metadata.drop_all(engine)
 
@@ -108,3 +116,32 @@ def catalogo(db):
                         cantidad_necesaria=Decimal("0.25")))
     db.commit()
     return {"harina": harina.id, "pan": pan.id, "medialuna": medialuna.id}
+
+
+@pytest.fixture
+def reparto(como, catalogo):
+    """Un admin, un repartidor, un cliente con dos puntos de entrega y stock holgado."""
+    admin = como(RolEnum.ADMIN, "dueno")
+    crear_usuario("repa", RolEnum.REPARTIDOR)
+    repa = login("repa")
+    for pid, n in ((catalogo["pan"], 100), (catalogo["medialuna"], 50)):
+        assert admin.put(f"{API}/productos/{pid}/stock", json={"stock_mostrador": n}).status_code == 200
+    cliente = admin.post(f"{API}/clientes", json={"nombre": "Bar del Puerto"}).json()
+
+    def punto(nombre, coord, **extra):
+        r = admin.post(
+            f"{API}/contabilidad/puntos-entrega",
+            json={"cliente_id": cliente["id"], "nombre": nombre, "latitud": coord[0],
+                  "longitud": coord[1], **extra},
+        )
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    return {
+        "admin": admin, "repa": repa, "cliente": cliente, "pan": catalogo["pan"],
+        "medialuna": catalogo["medialuna"],
+        "repartidor_id": admin.get(f"{API}/entregas/repartidores").json()[0]["id"],
+        "centro": punto("Centro", ("-34.603700", "-58.381600")),
+        "norte": punto("Norte", ("-34.580000", "-58.420000")),
+        "punto": punto,
+    }

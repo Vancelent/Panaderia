@@ -10,6 +10,7 @@ class RolEnum(str, enum.Enum):
     ENCARGADA = "Encargada"
     VENDEDORA = "Vendedora"
     PANADERO = "Panadero"
+    REPARTIDOR = "Repartidor"
 
 
 class EstadoTurnoEnum(str, enum.Enum):
@@ -46,3 +47,51 @@ class EstadoPedidoEnum(str, enum.Enum):
     LISTO = "Listo"
     ENTREGADO = "Entregado"
     CANCELADO = "Cancelado"
+
+
+class TipoTurnoEnum(str, enum.Enum):
+    MOSTRADOR = "Mostrador"
+    REPARTO = "Reparto"
+
+
+class OrigenVentaEnum(str, enum.Enum):
+    MOSTRADOR = "Mostrador"
+    PEDIDO = "Pedido"
+    REPARTO = "Reparto"
+
+
+class EstadoHojaRutaEnum(str, enum.Enum):
+    BORRADOR = "Borrador"
+    CONFIRMADA = "Confirmada"
+    CARGADA = "Cargada"
+    EN_RUTA = "En ruta"
+    RENDIDA = "Rendida"
+    ANULADA = "Anulada"
+
+
+class EstadoEntregaEnum(str, enum.Enum):
+    PENDIENTE = "Pendiente"
+    EN_LOCAL = "En el local"
+    ENTREGADA = "Entregada"
+    PARCIAL = "Parcial"
+    NO_ENTREGADA = "No entregada"
+
+
+class TipoEventoEntregaEnum(str, enum.Enum):
+    CHECK_IN = "Check-in"
+    CONFIRMADA = "Confirmada"
+    NO_ENTREGADA = "No entregada"
+    NOTA = "Nota"
+
+
+class TipoEventoRecorridoEnum(str, enum.Enum):
+    GPS_SIN_SENAL = "GPS sin señal"
+    PERMISO_REVOCADO = "Permiso revocado"
+    TRAZA_INTERRUMPIDA = "Traza interrumpida"
+
+
+class DestinoDevolucionEnum(str, enum.Enum):
+    """Qué pasa con la mercadería que vuelve del reparto (solo en la API, no se guarda como tipo)."""
+
+    REINGRESO = "Reingreso"
+    MERMA = "Merma"

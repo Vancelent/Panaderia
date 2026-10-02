@@ -113,7 +113,14 @@ export default function StockPage() {
                   {fmtNumero(x.actual)}
                   <span className="ml-1 text-sm font-medium text-stone-500">{vista === 'productos' ? 'u' : x.unidad_medida}</span>
                 </span>
-                <span className="text-xs text-stone-500">mín. {fmtNumero(x.stock_minimo)}</span>
+                <span className="text-xs text-stone-500">
+                  {vista === 'productos' && x.stock_reservado > 0 && (
+                    <span className="mr-2 font-semibold text-amber-700 dark:text-amber-400">
+                      {fmtNumero(x.stock_reservado)} reservadas
+                    </span>
+                  )}
+                  mín. {fmtNumero(x.stock_minimo)}
+                </span>
               </div>
               <BarraNivel actual={x.actual} minimo={x.stock_minimo} />
               {gestion && (

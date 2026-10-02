@@ -27,6 +27,11 @@ export const qk = {
   descuentos: (id) => ['descuentos', id],
   saldos: ['saldos'],
   cuentaCorriente: (id) => ['cuenta-corriente', id],
+  hojas: (fecha) => ['hojas', fecha],
+  hoja: (id) => ['hoja', id],
+  resumenEntregas: (fecha) => ['resumen-entregas', fecha],
+  repartidores: ['repartidores'],
+  recorrido: (id) => ['recorrido', id],
 }
 
 // Cada cuánto se refresca el stock solo, para ver lo que cargan otras pantallas
@@ -140,4 +145,41 @@ export const useCuentaCorriente = (clienteId) =>
     queryKey: qk.cuentaCorriente(clienteId),
     queryFn: () => get(`/contabilidad/clientes/${clienteId}/cuenta-corriente`),
     enabled: !!clienteId,
+  })
+
+// ---------- Reparto ----------
+
+export const useHojas = (fecha) =>
+  useQuery({
+    queryKey: qk.hojas(fecha),
+    queryFn: () => get('/entregas/hojas', { fecha }),
+    placeholderData: (prev) => prev,
+    refetchInterval: 20_000, // las entregas de la calle se ven al rato en la gestión
+  })
+
+export const useHoja = (id) =>
+  useQuery({
+    queryKey: qk.hoja(id),
+    queryFn: () => get(`/entregas/hojas/${id}`),
+    enabled: !!id,
+    refetchInterval: 20_000,
+  })
+
+export const useResumenEntregas = (fecha) =>
+  useQuery({
+    queryKey: qk.resumenEntregas(fecha),
+    queryFn: () => get('/entregas/resumen', { fecha }),
+    placeholderData: (prev) => prev,
+    refetchInterval: 20_000,
+  })
+
+export const useRepartidores = () =>
+  useQuery({ queryKey: qk.repartidores, queryFn: () => get('/entregas/repartidores') })
+
+export const useRecorrido = (hojaId, enabled = true) =>
+  useQuery({
+    queryKey: qk.recorrido(hojaId),
+    queryFn: () => get(`/entregas/hojas/${hojaId}/recorrido`),
+    enabled: !!hojaId && enabled,
+    refetchInterval: 30_000,
   })

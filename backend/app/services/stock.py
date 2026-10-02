@@ -100,6 +100,74 @@ def redondear_dinero(valor: Decimal) -> Decimal:
     return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+# ---------- Reparto: reservar, cargar y reingresar ----------
+
+
+def reservar_productos(productos: dict[int, Producto], cantidades: dict[int, int]) -> None:
+    """Compromete stock para una hoja de ruta confirmada. Valida todo antes de tocar nada.
+
+    El CHECK de la base (0 <= reservado <= stock_mostrador) es la última defensa.
+    """
+    insuficientes = [
+        {"producto_id": pid, "nombre": productos[pid].nombre,
+         "disponible": disponible(productos[pid]), "solicitado": cant}
+        for pid, cant in cantidades.items()
+        if disponible(productos[pid]) < cant
+    ]
+    if insuficientes:
+        raise _stock_insuficiente(insuficientes)
+    for pid, cant in cantidades.items():
+        productos[pid].stock_reservado += cant
+
+
+def liberar_reserva(productos: dict[int, Producto], cantidades: dict[int, int]) -> None:
+    """Devuelve a la caja lo reservado (hoja reabierta o anulada)."""
+    for pid, cant in cantidades.items():
+        if productos[pid].stock_reservado < cant:
+            raise ConflictError(
+                f"La reserva de {productos[pid].nombre} es menor a la que se quiere liberar.",
+                code="reserva_inconsistente",
+            )
+    for pid, cant in cantidades.items():
+        productos[pid].stock_reservado -= cant
+
+
+def cargar_reserva(
+    productos: dict[int, Producto], reservado: dict[int, int], cargado: dict[int, int]
+) -> None:
+    """La mercadería sale del local: baja el stock por lo cargado y se libera toda la reserva.
+
+    Si se cargó menos de lo reservado, la diferencia queda disponible para la caja.
+    """
+    for pid, cant in cargado.items():
+        if cant > reservado.get(pid, 0):
+            raise ConflictError(
+                f"No se puede cargar más de lo reservado de {productos[pid].nombre}.",
+                code="cantidad_excede_reserva",
+            )
+    for pid, cant in reservado.items():
+        productos[pid].stock_mostrador -= cargado.get(pid, 0)
+        productos[pid].stock_reservado -= cant
+
+
+def destinos_de_reingreso(db: Session, producto_ids: Iterable[int]) -> dict[int, int]:
+    """producto -> producto que recibe lo que vuelve: su variante "día anterior" si la tiene."""
+    ids = set(producto_ids)
+    variante_de = {
+        base: variante
+        for base, variante in db.execute(
+            select(Producto.producto_base_id, Producto.id).where(Producto.producto_base_id.in_(ids))
+        )
+    }
+    return {pid: variante_de.get(pid, pid) for pid in ids}
+
+
+def reingresar_devolucion(productos: dict[int, Producto], cantidades: dict[int, int]) -> None:
+    """Suma al mostrador lo que volvió del reparto en condiciones de venderse."""
+    for pid, cant in cantidades.items():
+        productos[pid].stock_mostrador += cant
+
+
 # ---------- Pan del día anterior ----------
 
 

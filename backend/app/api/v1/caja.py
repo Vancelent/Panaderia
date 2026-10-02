@@ -20,7 +20,8 @@ router = APIRouter(tags=["Caja"])
 
 def _venta_out(v: Venta) -> dict:
     return {
-        "id": v.id, "turno_id": v.turno_id, "fecha": v.fecha, "metodo_pago": v.metodo_pago,
+        "id": v.id, "turno_id": v.turno_id, "fecha": v.fecha, "origen": v.origen,
+        "metodo_pago": v.metodo_pago,
         "monto": v.monto, "cliente_id": v.cliente_id,
         "pagos": [
             {"metodo_pago": p.metodo_pago, "monto": p.monto, "referencia": p.referencia,

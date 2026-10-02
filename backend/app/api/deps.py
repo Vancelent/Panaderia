@@ -79,9 +79,16 @@ def require_roles(*roles: RolEnum) -> Callable[..., Usuario]:
 GESTION = (RolEnum.ADMIN, RolEnum.ENCARGADA)
 MOSTRADOR = (RolEnum.ADMIN, RolEnum.ENCARGADA, RolEnum.VENDEDORA)
 PRODUCCION = (RolEnum.ADMIN, RolEnum.ENCARGADA, RolEnum.PANADERO)
+REPARTO = (RolEnum.REPARTIDOR,)
+# Todo el personal del local: el repartidor solo opera sobre su hoja de ruta
+INTERNOS = (RolEnum.ADMIN, RolEnum.ENCARGADA, RolEnum.VENDEDORA, RolEnum.PANADERO)
 TODOS = tuple(RolEnum)
 
 Admin = Annotated[Usuario, Depends(require_roles(RolEnum.ADMIN))]
 Gestion = Annotated[Usuario, Depends(require_roles(*GESTION))]
 Mostrador = Annotated[Usuario, Depends(require_roles(*MOSTRADOR))]
 Produccion = Annotated[Usuario, Depends(require_roles(*PRODUCCION))]
+Interno = Annotated[Usuario, Depends(require_roles(*INTERNOS))]
+Repartidor = Annotated[Usuario, Depends(require_roles(*REPARTO))]
+# La carga del vehículo la puede registrar la gestión o el propio repartidor
+GestionORepartidor = Annotated[Usuario, Depends(require_roles(*GESTION, *REPARTO))]

@@ -152,6 +152,15 @@ def resumen(db: Session, desde: date, hasta: date) -> dict:
         )
     }
 
+    por_canal = {
+        origen.value: (Decimal(total), int(cantidad))
+        for origen, total, cantidad in db.execute(
+            select(Venta.origen, func.sum(Venta.monto), func.count(Venta.id))
+            .where(*en_rango)
+            .group_by(Venta.origen)
+        )
+    }
+
     por_dia: dict[date, Decimal] = defaultdict(lambda: CERO)
     tz = zona()
     for v in ventas:
@@ -207,6 +216,10 @@ def resumen(db: Session, desde: date, hasta: date) -> dict:
         "merma_valorizada": Decimal(merma[1]),
         "ventas_por_medio": [
             {"metodo_pago": m, "total": t, "cantidad": c} for m, (t, c) in sorted(por_medio.items())
+        ],
+        "ventas_por_canal": [
+            {"canal": canal, "total": total, "cantidad": cantidad}
+            for canal, (total, cantidad) in sorted(por_canal.items())
         ],
         "ventas_diarias": dias,
         "top_productos": [

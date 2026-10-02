@@ -8,6 +8,7 @@ from app.api.v1 import (
     caja,
     comercial,
     contabilidad,
+    entregas,
     finanzas,
     inventario,
     produccion,
@@ -55,7 +56,9 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     v1 = APIRouter(prefix="/api/v1")
-    for modulo in (auth, usuarios, caja, inventario, produccion, comercial, finanzas, contabilidad, stock):
+    for modulo in (
+        auth, usuarios, caja, inventario, produccion, comercial, finanzas, contabilidad, stock, entregas
+    ):
         v1.include_router(modulo.router)
     app.include_router(v1)
 

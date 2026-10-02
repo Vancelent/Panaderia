@@ -126,12 +126,12 @@ function Terminal({ turno }) {
 
   const agregar = (p, n = mult) => {
     const actual = carrito[p.id] ?? 0
-    const nueva = Math.min(actual + n, p.stock_mostrador)
+    const nueva = Math.min(actual + n, p.stock_disponible)
     if (nueva === actual) {
-      toast.info(`No hay más ${p.nombre} en el mostrador.`)
+      toast.info(`No hay más ${p.nombre} disponible para vender.`)
       return
     }
-    if (nueva < actual + n) toast.info(`Solo quedan ${p.stock_mostrador} de ${p.nombre}.`)
+    if (nueva < actual + n) toast.info(`Solo quedan ${p.stock_disponible} de ${p.nombre}.`)
     setCarrito((c) => ({ ...c, [p.id]: nueva }))
     setMult(1)
   }
@@ -316,9 +316,9 @@ function Chip({ activo, children, ...props }) {
 }
 
 function TarjetaProducto({ p, enCarrito, onClick }) {
-  const agotado = p.stock_mostrador <= 0
-  const lleno = enCarrito >= p.stock_mostrador
-  const disponible = Math.max(0, p.stock_mostrador - enCarrito)
+  const agotado = p.stock_disponible <= 0
+  const lleno = enCarrito >= p.stock_disponible
+  const disponible = Math.max(0, p.stock_disponible - enCarrito)
   const nivel = nivelStock(disponible, p.stock_minimo)
   return (
     <button
@@ -372,7 +372,7 @@ function Ticket({ items, total, onFijar, onVaciar, onCobrar }) {
                 </div>
                 <div className="mt-1.5 flex items-center justify-between gap-3">
                   <p className="tabular text-xs text-stone-500">{fmtDinero(p.precio_venta)} c/u</p>
-                  <Stepper value={cantidad} onChange={(n) => onFijar(p.id, n)} max={p.stock_mostrador} />
+                  <Stepper value={cantidad} onChange={(n) => onFijar(p.id, n)} max={p.stock_disponible} />
                 </div>
               </li>
             ))}

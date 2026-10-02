@@ -5,7 +5,7 @@ import { useAuth } from './auth/context'
 import { AppShell } from './components/layout/AppShell'
 import { PantallaCarga } from './components/ui/Spinner'
 import LoginPage from './features/LoginPage'
-import { GESTION, MOSTRADOR, PRODUCCION, ROL, inicioPorRol } from './lib/roles'
+import { GESTION, INTERNOS, MOSTRADOR, PRODUCCION, ROL, inicioPorRol } from './lib/roles'
 
 // Cada pantalla se carga bajo demanda: la caja no descarga el tablero de finanzas.
 const PosPage = lazy(() => import('./features/pos/PosPage'))
@@ -19,6 +19,8 @@ const ComprasPage = lazy(() => import('./features/admin/ComprasPage'))
 const ArqueosPage = lazy(() => import('./features/admin/ArqueosPage'))
 const ContabilidadPage = lazy(() => import('./features/contabilidad/ContabilidadPage'))
 const UsuariosPage = lazy(() => import('./features/admin/UsuariosPage'))
+const RepartoPage = lazy(() => import('./features/reparto/RepartoPage'))
+const MiRutaPage = lazy(() => import('./features/reparto/MiRutaPage'))
 
 function Inicio() {
   const { user, loading } = useAuth()
@@ -40,14 +42,16 @@ export default function App() {
         }
       >
         <Route path="/caja" element={conRol(MOSTRADOR, <PosPage />)} />
-        <Route path="/pedidos" element={<PedidosPage />} />
+        <Route path="/pedidos" element={conRol(INTERNOS, <PedidosPage />)} />
         <Route path="/produccion" element={conRol(PRODUCCION, <ProduccionPage />)} />
-        <Route path="/stock" element={<StockPage />} />
+        <Route path="/stock" element={conRol(INTERNOS, <StockPage />)} />
         <Route path="/clientes" element={conRol(MOSTRADOR, <ClientesPage />)} />
         <Route path="/admin" element={conRol(GESTION, <DashboardPage />)} />
         <Route path="/admin/productos" element={conRol(GESTION, <ProductosPage />)} />
         <Route path="/admin/compras" element={conRol(GESTION, <ComprasPage />)} />
         <Route path="/admin/arqueos" element={conRol(GESTION, <ArqueosPage />)} />
+        <Route path="/admin/reparto" element={conRol(GESTION, <RepartoPage />)} />
+        <Route path="/reparto" element={conRol([ROL.REPARTIDOR], <MiRutaPage />)} />
         <Route path="/admin/contabilidad" element={conRol(GESTION, <ContabilidadPage />)} />
         <Route path="/admin/usuarios" element={conRol([ROL.ADMIN], <UsuariosPage />)} />
       </Route>

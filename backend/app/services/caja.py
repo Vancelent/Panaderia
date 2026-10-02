@@ -15,6 +15,8 @@ from app.models import (
     EstadoPagoEnum,
     EstadoTurnoEnum,
     MetodoPagoEnum,
+    OrigenVentaEnum,
+    TipoTurnoEnum,
     Turno,
     Usuario,
     Venta,
@@ -38,17 +40,25 @@ def medios_habilitados() -> list[MetodoPagoEnum]:
     return list(get_settings().medios_pago_habilitados)
 
 
-def turno_abierto(db: Session, usuario: Usuario) -> Turno | None:
+def turno_abierto(
+    db: Session, usuario: Usuario, tipo: TipoTurnoEnum = TipoTurnoEnum.MOSTRADOR
+) -> Turno | None:
     return db.scalar(
         select(Turno).where(
-            Turno.usuario_id == usuario.id, Turno.estado == EstadoTurnoEnum.ABIERTO
+            Turno.usuario_id == usuario.id,
+            Turno.estado == EstadoTurnoEnum.ABIERTO,
+            Turno.tipo == tipo,
         )
     )
 
 
-def exigir_turno_abierto(db: Session, usuario: Usuario) -> Turno:
-    turno = turno_abierto(db, usuario)
+def exigir_turno_abierto(
+    db: Session, usuario: Usuario, tipo: TipoTurnoEnum = TipoTurnoEnum.MOSTRADOR
+) -> Turno:
+    turno = turno_abierto(db, usuario, tipo)
     if turno is None:
+        if tipo == TipoTurnoEnum.REPARTO:
+            raise ConflictError("No tenés una hoja de ruta cargada.", code="sin_turno")
         raise ConflictError("Abrí un turno de caja antes de cobrar.", code="sin_turno")
     return turno
 
@@ -85,11 +95,21 @@ def _totales_turno(db: Session, turno_id: int) -> tuple[Decimal, Decimal, Decima
     return stock.redondear_dinero(efectivo), stock.redondear_dinero(otros), cobros
 
 
-def cerrar_turno(db: Session, turno_id: int, monto_declarado: Decimal) -> Turno:
+def cerrar_turno(
+    db: Session,
+    turno_id: int,
+    monto_declarado: Decimal,
+    *,
+    commit: bool = True,
+    permitir_reparto: bool = False,
+) -> Turno:
     """Arqueo ciego: se guarda la diferencia pero no se devuelve al cajero.
 
     El FOR UPDATE espera a que terminen las ventas y cobros en curso (que toman FOR SHARE
     sobre el turno), así ninguno queda fuera del arqueo.
+
+    Un turno de reparto solo se cierra con la rendición de su hoja de ruta, que lo llama con
+    `permitir_reparto=True` y `commit=False` para hacerlo todo en una sola transacción.
     """
     turno = db.scalar(
         select(Turno)
@@ -101,6 +121,11 @@ def cerrar_turno(db: Session, turno_id: int, monto_declarado: Decimal) -> Turno:
         raise NotFoundError("Turno no encontrado.")
     if turno.estado == EstadoTurnoEnum.CERRADO:
         raise ConflictError("El turno ya fue cerrado.", code="turno_cerrado")
+    if turno.tipo == TipoTurnoEnum.REPARTO and not permitir_reparto:
+        raise ConflictError(
+            "Un turno de reparto se cierra con la rendición de su hoja de ruta.",
+            code="turno_de_reparto",
+        )
 
     ventas_efectivo, ventas_otros, cobros = _totales_turno(db, turno.id)
     monto_sistema = Decimal(turno.efectivo_inicial) + ventas_efectivo + cobros
@@ -117,7 +142,8 @@ def cerrar_turno(db: Session, turno_id: int, monto_declarado: Decimal) -> Turno:
     )
     turno.estado = EstadoTurnoEnum.CERRADO
     turno.fecha_cierre = utcnow()
-    db.commit()
+    if commit:
+        db.commit()
     return turno
 
 
@@ -157,6 +183,7 @@ def crear_venta(
     pagos: list[PagoEntrada] | None = None,
     cliente_id: int | None = None,
     precios: dict[int, Decimal] | None = None,
+    origen: OrigenVentaEnum = OrigenVentaEnum.MOSTRADOR,
     commit: bool = True,
 ) -> Venta:
     """Descuenta stock y registra la venta con sus pagos en una sola transacción.
@@ -192,7 +219,7 @@ def crear_venta(
     # Se calcula y valida todo antes de tocar el stock: o se hace todo, o nada.
     venta = Venta(
         turno_id=turno.id, usuario_id=usuario.id, cliente_id=cliente_id,
-        metodo_pago=metodo_pago, monto=Decimal("0"),
+        origen=origen, metodo_pago=metodo_pago, monto=Decimal("0"),
     )
     total = Decimal("0")
     for pid, cant in cantidades.items():

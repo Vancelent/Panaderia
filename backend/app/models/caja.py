@@ -5,17 +5,25 @@ from sqlalchemy import CheckConstraint, Enum, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, utcnow
-from app.models.enums import EstadoPagoEnum, EstadoTurnoEnum, MetodoPagoEnum
+from app.models.enums import (
+    EstadoPagoEnum,
+    EstadoTurnoEnum,
+    MetodoPagoEnum,
+    OrigenVentaEnum,
+    TipoTurnoEnum,
+)
 from app.models.usuario import Usuario
 
 
 class Turno(Base):
     __tablename__ = "turnos"
     __table_args__ = (
-        # Un usuario no puede tener dos turnos abiertos a la vez (lo garantiza la BD).
+        # Un usuario no puede tener dos turnos abiertos del mismo tipo a la vez (lo garantiza la
+        # BD): sí puede tener uno de mostrador y otro de reparto.
         Index(
             "uq_turno_abierto_por_usuario",
             "usuario_id",
+            "tipo",
             unique=True,
             postgresql_where=text("estado = 'ABIERTO'"),
             sqlite_where=text("estado = 'ABIERTO'"),
@@ -24,6 +32,10 @@ class Turno(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    # Los turnos de REPARTO los abre la carga de una hoja de ruta y se cierran con su rendición
+    tipo: Mapped[TipoTurnoEnum] = mapped_column(
+        Enum(TipoTurnoEnum), default=TipoTurnoEnum.MOSTRADOR, server_default="MOSTRADOR"
+    )
     fecha_apertura: Mapped[datetime] = mapped_column(default=utcnow)
     efectivo_inicial: Mapped[Decimal]
     fecha_cierre: Mapped[datetime | None]
@@ -61,6 +73,12 @@ class Venta(Base):
     turno_id: Mapped[int] = mapped_column(ForeignKey("turnos.id"), index=True)
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
     cliente_id: Mapped[int | None] = mapped_column(ForeignKey("clientes.id"), index=True)
+    origen: Mapped[OrigenVentaEnum] = mapped_column(
+        Enum(OrigenVentaEnum), default=OrigenVentaEnum.MOSTRADOR, server_default="MOSTRADOR"
+    )
+    punto_entrega_id: Mapped[int | None] = mapped_column(
+        ForeignKey("puntos_entrega.id"), index=True
+    )
     fecha: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     # Medio principal (el de mayor monto). El detalle real de cómo se pagó está en `pagos`.
     metodo_pago: Mapped[MetodoPagoEnum] = mapped_column(

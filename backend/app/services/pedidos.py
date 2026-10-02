@@ -11,6 +11,7 @@ from app.models import (
     DetallePedido,
     EstadoPedidoEnum,
     MetodoPagoEnum,
+    OrigenVentaEnum,
     Pedido,
     Producto,
     RolEnum,
@@ -160,6 +161,7 @@ def entregar(db: Session, pedido_id: int, usuario: Usuario, metodo_pago: MetodoP
         precios={d.producto_id: Decimal(d.precio_unitario) for d in pedido.detalles},
         metodo_pago=metodo_pago,
         cliente_id=pedido.cliente_id,
+        origen=OrigenVentaEnum.PEDIDO,
         commit=False,
     )
     pedido.estado = E.ENTREGADO

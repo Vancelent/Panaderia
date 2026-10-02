@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from typing import Annotated, Literal
 
@@ -45,6 +46,15 @@ class Settings(BaseSettings):
         ]
     )
 
+    # Punto de partida del reparto (la panadería). Sin esto, la ruta sugerida arranca desde el
+    # centro de los puntos a visitar.
+    panaderia_latitud: Decimal | None = None
+    panaderia_longitud: Decimal | None = None
+    # La traza GPS cruda se conserva este tiempo (particiones mensuales; ver docs/rfc-001 §5.4)
+    retencion_gps_dias: int = Field(default=90, ge=7, le=3650)
+    # Una entrega confirmada a más de esta distancia del punto cargado se marca como alerta
+    alerta_distancia_entrega_m: int = Field(default=300, ge=50, le=5000)
+
     login_max_intentos: int = 5
     login_ventana_segundos: int = 300
 
@@ -53,6 +63,14 @@ class Settings(BaseSettings):
     def _split_origins(cls, v):
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
+    @field_validator("panaderia_latitud", "panaderia_longitud", mode="before")
+    @classmethod
+    def _coordenada_vacia(cls, v):
+        # Copiar .env.example deja "PANADERIA_LATITUD=": se toma como "sin configurar"
+        if isinstance(v, str) and not v.strip():
+            return None
         return v
 
     @field_validator("medios_pago_habilitados", mode="before")

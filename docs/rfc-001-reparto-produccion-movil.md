@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado** | Borrador v3 para revisión |
+| **Estado** | v3 aprobado · Fases 1 y 2 implementadas |
 | **Fecha** | 2026-09-30 |
 | **Base** | Rama `modernizacion` (commit `fc4b34b`) · ver [`arquitectura.md`](arquitectura.md) |
 | **Alcance** | Backend FastAPI, infraestructura, cliente web (caja y contabilidad) y app móvil universal |
@@ -14,6 +14,7 @@
 | v1 | Reparto matutino, despliegue con Cloudflare y app móvil para repartidor y monitoreo |
 | v2 | **Autenticación híbrida** (Google + PIN de caja) · **caja orientada a teclado** · **puntos de entrega** con descuentos por local en el módulo contable · **cuenta corriente simple, sin límite de crédito** · **app móvil universal** · **infraestructura low-cost** (VPS chico o Proxmox) · **ruta sugerida no obligatoria y registro del recorrido real** |
 | v3 | **Medios de pago preparados** para tarjeta y QR con pagos mixtos (`ventas_pagos`) · **"Pasar a día anterior" como ajuste manual** de la encargada, auditado · **traza GPS obligatoria** con **retención de 90 días** por particiones mensuales · despliegue principal en **VPS con dominio público** (Google siempre disponible) · preguntas P4–P6 resueltas |
+| v3.1 | **Fase 2 implementada**: ajustes de diseño surgidos al implementar y probar contra PostgreSQL (bloqueo de la hoja en las confirmaciones, clave de `recorrido_puntos`, `inicio-ruta`, códigos de error nuevos). Ver [Fase 2 · notas de implementación](#fase-2--notas-de-implementación) |
 
 ## Índice
 
@@ -422,7 +423,7 @@ Toda transacción que toma más de un bloqueo lo hace **en este orden**, y dentr
 ```
 1. operaciones_idempotentes (INSERT de la clave: serializa reintentos de la misma operación)
 2. turnos             (FOR SHARE en ventas · FOR UPDATE en cierre/rendición)
-3. hojas_ruta         (FOR UPDATE; FOR SHARE al confirmar entregas)
+3. hojas_ruta         (FOR NO KEY UPDATE, también al confirmar entregas)
 4. entregas           (FOR UPDATE, ORDER BY id)
 5. clientes           (FOR UPDATE, saldo de cuenta corriente)
 6. numeradores        (FOR UPDATE)
@@ -441,7 +442,7 @@ Quedan fuera de la jerarquía, porque no se bloquean: `recorrido_puntos` y `entr
 | Venta en caja (PC o celular) | 2 (share) → 5 (si es a cuenta corriente) → 7 |
 | Confirmar / anular hoja | 3 → 7 |
 | Carga | 3 → 7 (crea el turno de reparto) |
-| Confirmar entrega | 1 → 2 (share) → 3 (share) → 4 → 5 → 6 |
+| Confirmar entrega | 1 → 2 (share) → 3 → 4 → 5 → 6 |
 | Pago de cuenta corriente | 1 → 2 (share, si es efectivo en ruta) → 5 |
 | Rendición | 2 (update) → 3 → 4 → 7 |
 | Pasar a día anterior | 7 (todas las filas del lote, ordenadas) |
@@ -466,7 +467,7 @@ sequenceDiagram
         DB-->>SVC: conflicto de unicidad
         SVC-->>APP: 200 con la respuesta guardada (reintento seguro)
     end
-    SVC->>DB: turno FOR SHARE · hoja FOR SHARE · entrega FOR UPDATE
+    SVC->>DB: turno FOR SHARE · hoja FOR NO KEY UPDATE · entrega FOR NO KEY UPDATE
     SVC->>SVC: valida estado y cantidades ≤ cargado − ya entregado
     SVC->>DB: cliente FOR UPDATE · numerador FOR UPDATE
     SVC->>DB: INSERT venta (turno de reparto, origen REPARTO, precios congelados) + ventas_pagos
@@ -477,7 +478,7 @@ sequenceDiagram
 ```
 
 `orden_real` se asigna como "cantidad de entregas ya confirmadas en la hoja + 1" dentro de la misma
-transacción. El bloqueo de la entrega y el `FOR SHARE` de la hoja lo hacen consistente.
+transacción. El bloqueo exclusivo de la hoja (ver las notas de la Fase 2) lo hace consistente.
 
 Si la hoja ya fue rendida o anulada cuando llega la sincronización, la operación se rechaza con
 `409 hoja_cerrada` y la app la marca para que la encargada la resuelva. El servidor es siempre la autoridad (D10).
@@ -503,6 +504,8 @@ Los puntos de entrega y la cuenta corriente pasan al módulo contable (§4.4). A
 | `GET /entregas/hojas/{id}/recorrido` | Gestión | Ruta sugerida vs. real para el mapa (§5.3) |
 | `POST /entregas/hojas/{id}/rendicion` | Gestión | Devoluciones, efectivo declarado y arqueo ciego |
 | `GET /entregas/resumen?fecha=` | Gestión | Completadas vs. pendientes, facturación del reparto |
+| `GET /entregas/repartidores` | Gestión | Usuarios con rol Repartidor, para armar hojas |
+| `POST /entregas/hojas/{id}/inicio-ruta` | Repartidor | `CARGADA → EN_RUTA`. Exige `ubicacion_concedida`; si no, `409 hoja_sin_ubicacion` (idempotente) |
 
 Las rutas de acción usan sustantivos (`/confirmacion`, `/carga`) igual que `/turnos/actual/cierre` y
 `/pedidos/{id}/entrega`. Códigos de error nuevos, en el formato unificado:
@@ -823,9 +826,9 @@ Estos eventos se guardan en `recorrido_eventos` (`hoja_id`, `tipo`, `desde`, `ha
 el dueño los ve sobre el mapa como tramos sin traza. El servidor también rechaza con
 `409 hoja_sin_ubicacion` el paso a `EN_RUTA` si el dispositivo no informa el permiso concedido.
 
-Tabla `recorrido_puntos` (particionada por mes, §5.4): `id BIGINT`, `hoja_id FK`, `latitud`/`longitud Numeric(9,6)`,
-`precision_m Numeric(7,1)`, `registrado_en_dispositivo`, `recibido_en_servidor`, `lote_id UUID`.
-PK `(id, registrado_en_dispositivo)` · índice `(hoja_id, registrado_en_dispositivo)`.
+Tabla `recorrido_puntos` (particionada por mes, §5.4): `lote_id UUID`, `hoja_id FK`, `latitud`/`longitud Numeric(9,6)`,
+`precision_m Numeric(7,1)`, `registrado_en_dispositivo`, `recibido_en_servidor`.
+PK `(lote_id, registrado_en_dispositivo)` · índice `(hoja_id, registrado_en_dispositivo)`.
 
 - **Envío por lotes**: los puntos se guardan en la base local de la app y viajan en lotes (cada ~2 min o al
   recuperar señal) por la misma cola de salida. `lote_id` evita duplicados si se reintenta.
@@ -868,7 +871,7 @@ con una partición por mes (`recorrido_puntos_2026_10`, …):
 - **Mantenimiento**: un `cron` del host ejecuta a diario `docker compose exec api python -m app.cli mantenimiento-gps`,
   que crea la partición del mes siguiente si no existe, elimina las vencidas y hace el borrado del borde.
   No hace falta `pg_partman` ni otra extensión.
-- La clave primaria pasa a ser `(id, registrado_en_dispositivo)`, porque PostgreSQL exige que incluya la
+- La clave primaria es `(lote_id, registrado_en_dispositivo)`, porque PostgreSQL exige que incluya la
   clave de partición. Nadie referencia estas filas con FK, así que no afecta al resto del modelo.
 - Los puntos que llegan con una fecha fuera de rango (reloj del celular muy desfasado) caen en una
   partición `DEFAULT` y se revisan en el mantenimiento. Nunca se pierde una sincronización por eso.
@@ -1388,6 +1391,34 @@ Cada fase deja el sistema funcionando, con tests en verde y `alembic check` sin 
 | Tocar | `app/services/stock.py` (reservar, liberar, cargar, reingresar) · `app/services/finanzas.py` (canal) · `app/api/deps.py` (grupo `Reparto`) · `app/main.py` |
 | Crear | `app/models/reparto.py` · `app/models/soporte.py` · `app/services/entregas.py` · `app/services/rutas.py` (heurística y simplificación de traza) · `app/services/recorrido.py` (lotes, huecos, mantenimiento de particiones) · `app/services/idempotencia.py` · `app/schemas/entregas.py` · `app/api/v1/entregas.py` · comando `mantenimiento-gps` en `app/cli.py` · migración `0005` · `tests/test_entregas.py` · `tests/test_rutas.py` · `tests/test_retencion_gps.py` (solo Postgres) · pantallas web de hojas de ruta, rendición y mapa |
 | Tests clave | la caja no vende lo reservado; la carga parcial libera; un reintento con el mismo `operacion_id` no duplica; una entrega fuera de orden asigna `orden_real`; un lote GPS repetido no duplica; sin permiso de ubicación no se pasa a `EN_RUTA` (`hoja_sin_ubicacion`); el mantenimiento crea la partición siguiente y elimina las de más de 90 días sin tocar el resumen de la hoja; confirmar la hoja y vender a la vez en Postgres |
+
+#### Fase 2 · notas de implementación
+
+La fase se implementó y se probó contra SQLite y PostgreSQL. Estas son las diferencias con el diseño de arriba y por qué:
+
+| Tema | Diseño original | Implementado | Motivo |
+|---|---|---|---|
+| Bloqueo de la hoja al confirmar una entrega | `FOR SHARE` | `FOR NO KEY UPDATE` (exclusivo) | `orden_real` es "el máximo + 1": con bloqueos compartidos, dos entregas simultáneas leían el mismo número. Las confirmaciones de una misma hoja ahora se serializan; entre hojas distintas siguen en paralelo |
+| Tipo de bloqueo de hoja y entrega | `FOR UPDATE` | `FOR NO KEY UPDATE` | Igual de exclusivo entre transacciones del reparto, pero no frena el `INSERT` de puntos GPS y eventos, que toman `FOR KEY SHARE` por su clave foránea. Así la traza sigue sin bloquear |
+| Clave de `recorrido_puntos` | `(id BIGINT, registrado_en_dispositivo)` | `(lote_id, registrado_en_dispositivo)` | La clave natural da la idempotencia del lote gratis (`ON CONFLICT DO NOTHING`) y vale igual en SQLite y PostgreSQL. Dos puntos con el mismo instante del dispositivo en un lote son el mismo punto |
+| Salida a la ruta | "primer evento en la calle" | endpoint explícito `POST /entregas/hojas/{id}/inicio-ruta` | Es lo que permite rechazar con `hoja_sin_ubicacion` y registrar el punto de partida. Check-in, confirmación y no entregada exigen la hoja `EN_RUTA` |
+| Conteo de filas insertadas | `rowcount` | `INSERT … ON CONFLICT DO NOTHING … RETURNING` | psycopg informa `rowcount = -1` en ese `INSERT`: un reintento se tomaba por operación nueva. Lo detectó la prueba contra PostgreSQL |
+| `orden_real` en no entregadas | solo al confirmar | también en `no-entregada` | La visita ocurrió igual; entra en el indicador de entregas fuera de orden |
+| Entregas sin resolver al rendir | no definido | se cierran como `NO_ENTREGADA` ("No se visitó") | La rendición necesita que lo cargado menos lo entregado sea exacto |
+| Devoluciones | `REINGRESO` o `MERMA` | deben sumar **exactamente** lo cargado menos lo entregado (`422 devolucion_no_cuadra`) | Evita que la rendición cierre con mercadería sin explicar |
+| `POST …/carga` sin `items` | — | carga todo lo reservado; con `items`, solo lo indicado (lo omitido cuenta 0) | Un toque para el caso común |
+| Pago de deuda en la calle | tabla de operaciones (§3.4) | `POST /contabilidad/clientes/{id}/pagos` también para el Repartidor, solo a clientes de su hoja cargada o en ruta y con el efectivo en su turno de reparto | Cierra la fila "Pago de cuenta corriente" de la jerarquía de bloqueos |
+| Tablero | canal en `finanzas` | `ventas_por_canal` en `GET /finanzas/resumen` (Mostrador, Pedido, Reparto) | — |
+| Rol Repartidor | `RolEnum.REPARTIDOR` | además queda **fuera** de pedidos, recetas, insumos y mermas (`Interno`), y en la web solo ve «Mi ruta» (solo lectura) | La app para entregar llega en la Fase 5 |
+| Productos | `stock_disponible` | `ProductoOut` expone `stock_reservado` y `stock_disponible`; la caja y la merma validan contra el disponible | Que la pantalla muestre lo mismo que el servidor aplica |
+
+Códigos de error agregados al formato unificado: `hoja_cerrada`, `hoja_sin_ubicacion`, `hoja_vacia`, `cantidad_excede_carga`, `cantidad_excede_reserva`, `cantidad_excede_planificada`, `carga_vacia`, `devolucion_no_cuadra`, `entrega_cerrada`, `entrega_vacia`, `operacion_en_curso`, `pago_excede_total`, `producto_fuera_de_entrega`, `producto_fuera_de_hoja`, `punto_repetido`, `repartidor_invalido`, `turno_de_reparto`, `turno_ya_abierto`.
+
+Operación:
+
+- **Mantenimiento diario de la traza**: `docker compose exec web python -m app.cli mantenimiento-gps` (variables `PANADERIA_LATITUD`, `PANADERIA_LONGITUD`, `RETENCION_GPS_DIAS` y `ALERTA_DISTANCIA_ENTREGA_M` en `.env.example`).
+- **Límites de partición** en UTC explícito (`… 00:00:00+00`): no dependen de la zona horaria de la sesión.
+- **Pruebas**: `test_entregas.py`, `test_rutas.py`, `test_retencion_gps.py`, `test_concurrencia_reparto.py` y `test_migracion_0005.py` (las tres últimas solo corren contra PostgreSQL).
 
 ### Fase 3 · Infraestructura low-cost
 

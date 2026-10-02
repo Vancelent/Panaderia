@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, computed_field
 
 from app.schemas.common import (
     CantidadInsumo,
@@ -56,8 +56,15 @@ class ProductoOut(ORMModel):
     producto_base_id: int | None
     precio_venta: DineroOut
     stock_mostrador: int
+    stock_reservado: int = 0                # comprometido en hojas de ruta confirmadas
     stock_minimo: int
     activo: bool
+
+    @computed_field
+    @property
+    def stock_disponible(self) -> int:
+        """Lo que la caja puede vender: el stock del mostrador menos lo reservado."""
+        return self.stock_mostrador - self.stock_reservado
 
 
 class AjusteStockProducto(BaseModel):

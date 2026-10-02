@@ -33,7 +33,7 @@ export function MermaModal({ open, onClose, productos }) {
     },
     onError: (e) => toast.error(mensajeError(e)),
   })
-  const valido = producto && cantidad > 0 && cantidad <= producto.stock_mostrador && motivo.trim()
+  const valido = producto && cantidad > 0 && cantidad <= producto.stock_disponible && motivo.trim()
 
   return (
     <Modal
@@ -58,10 +58,10 @@ export function MermaModal({ open, onClose, productos }) {
             <Select id={id} value={productoId} onChange={(e) => setProductoId(e.target.value)}>
               <option value="">Elegí un producto…</option>
               {productos
-                .filter((p) => p.stock_mostrador > 0)
+                .filter((p) => p.stock_disponible > 0)
                 .map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} (stock {p.stock_mostrador})
+                    {p.nombre} (stock {p.stock_disponible})
                   </option>
                 ))}
             </Select>
@@ -69,7 +69,7 @@ export function MermaModal({ open, onClose, productos }) {
         </Field>
         <div>
           <p className="label">Cantidad</p>
-          <Stepper value={cantidad} onChange={setCantidad} min={1} max={producto?.stock_mostrador ?? 9999} size="lg" />
+          <Stepper value={cantidad} onChange={setCantidad} min={1} max={producto?.stock_disponible ?? 9999} size="lg" />
         </div>
         <div>
           <p className="label">Motivo</p>

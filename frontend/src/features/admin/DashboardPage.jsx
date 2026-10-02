@@ -118,6 +118,19 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+            <section className="card min-w-0 p-5">
+              <h2 className="mb-4 font-bold">Ventas por canal</h2>
+              {r.ventas_por_canal?.length ? (
+                <BarrasHorizontales
+                  filas={r.ventas_por_canal}
+                  valor={(f) => f.total}
+                  etiqueta={(f) => f.canal}
+                  detalle={(f) => `${fmtDinero(f.total)} · ${f.cantidad}`}
+                />
+              ) : (
+                <p className="text-sm text-stone-500">Sin ventas en el período.</p>
+              )}
+            </section>
             <section className="card min-w-0 p-5 xl:col-span-2">
               <h2 className="mb-4 font-bold">Productos más vendidos</h2>
               {r.top_productos.length ? (

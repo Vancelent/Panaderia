@@ -2,9 +2,9 @@ from datetime import date
 
 from fastapi import APIRouter, Query, status
 
-from app.api.deps import DB, Gestion
+from app.api.deps import DB, Gestion, GestionORepartidor
 from app.models import DescuentoPunto, MovimientoCuentaCorriente, PuntoEntrega
-from app.models.enums import MetodoPagoEnum
+from app.models.enums import MetodoPagoEnum, RolEnum, TipoTurnoEnum
 from app.schemas.contabilidad import (
     AjusteIn,
     CuentaCorrienteOut,
@@ -21,7 +21,7 @@ from app.schemas.contabilidad import (
     PuntoEntregaUpdate,
     SaldoOut,
 )
-from app.services import caja, contabilidad, descuentos, turnos
+from app.services import caja, contabilidad, descuentos, entregas, turnos
 
 router = APIRouter(prefix="/contabilidad", tags=["Contabilidad"])
 
@@ -148,12 +148,18 @@ def cuenta_corriente(
 @router.post(
     "/clientes/{cliente_id}/pagos", response_model=MovimientoOut, status_code=status.HTTP_201_CREATED
 )
-def registrar_pago(cliente_id: int, datos: PagoCuentaCorrienteIn, usuario: Gestion, db: DB):
+def registrar_pago(cliente_id: int, datos: PagoCuentaCorrienteIn, usuario: GestionORepartidor, db: DB):
+    """Cobro de deuda. El repartidor cobra en la calle solo a clientes de su hoja de ruta en
+    curso, y el efectivo entra a su turno de reparto."""
+    tipo = TipoTurnoEnum.MOSTRADOR
+    if usuario.rol == RolEnum.REPARTIDOR:
+        entregas.exigir_cliente_en_ruta(db, usuario, cliente_id)
+        tipo = TipoTurnoEnum.REPARTO
     turno_id = None
     if datos.metodo_pago == MetodoPagoEnum.EFECTIVO:
         # El efectivo entra al cajón de un turno: se bloquea FOR SHARE (nivel 2 de la
         # jerarquía) para que un cierre simultáneo no lo deje fuera del arqueo.
-        turno = caja.exigir_turno_abierto(db, usuario)
+        turno = caja.exigir_turno_abierto(db, usuario, tipo)
         turno_id = turnos.bloquear_para_cobro(db, turno.id).id
     movimiento = contabilidad.registrar_pago(db, usuario, cliente_id, datos, turno_id)
     return _movimiento_out(movimiento)

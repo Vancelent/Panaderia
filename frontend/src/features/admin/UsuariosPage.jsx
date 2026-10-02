@@ -13,7 +13,7 @@ import { fmtFecha } from '../../lib/format'
 import { useUsuarios } from '../../lib/queries'
 import { ROL } from '../../lib/roles'
 
-const TONO_ROL = { Admin: 'violet', Encargada: 'blue', Vendedora: 'green', Panadero: 'brand' }
+const TONO_ROL = { Admin: 'violet', Encargada: 'blue', Vendedora: 'green', Panadero: 'brand', Repartidor: 'amber' }
 
 export default function UsuariosPage() {
   const { user } = useAuth()

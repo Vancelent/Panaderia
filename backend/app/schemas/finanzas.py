@@ -70,6 +70,12 @@ class VentasPorMedio(BaseModel):
     cantidad: int
 
 
+class VentasPorCanal(BaseModel):
+    canal: str                              # Mostrador, Pedido o Reparto
+    total: DineroOut
+    cantidad: int
+
+
 class VentaDiaria(BaseModel):
     fecha: date
     total: DineroOut
@@ -94,5 +100,6 @@ class ResumenFinanciero(BaseModel):
     unidades_merma: int
     merma_valorizada: DineroOut
     ventas_por_medio: list[VentasPorMedio]
+    ventas_por_canal: list[VentasPorCanal]
     ventas_diarias: list[VentaDiaria]
     top_productos: list[TopProducto]

@@ -2,7 +2,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import EstadoPagoEnum, EstadoTurnoEnum, MetodoPagoEnum
+from app.models.enums import (
+    EstadoPagoEnum,
+    EstadoTurnoEnum,
+    MetodoPagoEnum,
+    OrigenVentaEnum,
+    TipoTurnoEnum,
+)
 from app.schemas.common import DineroNoNegativo, DineroOut, DineroPositivo, ORMModel, Texto, Unidades
 
 
@@ -19,6 +25,7 @@ class TurnoOut(ORMModel):
 
     id: int
     usuario_id: int
+    tipo: TipoTurnoEnum
     fecha_apertura: datetime
     efectivo_inicial: DineroOut
     fecha_cierre: datetime | None
@@ -91,6 +98,7 @@ class VentaOut(ORMModel):
     id: int
     turno_id: int
     fecha: datetime
+    origen: OrigenVentaEnum
     metodo_pago: MetodoPagoEnum             # medio principal (el de mayor monto)
     monto: DineroOut
     cliente_id: int | None

@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, status
 
-from app.api.deps import DB, CurrentUser, Gestion
+from app.api.deps import DB, CurrentUser, Gestion, Interno
 from app.models import MateriaPrima, Producto, RecetaInsumo, RolEnum
 from app.schemas.inventario import (
     AjusteStockProducto,
@@ -62,7 +62,7 @@ def ajustar_stock(producto_id: int, datos: AjusteStockProducto, _: Gestion, db: 
 
 
 @router.get("/productos/{producto_id}/receta", response_model=RecetaOut)
-def ver_receta(producto_id: int, _: CurrentUser, db: DB):
+def ver_receta(producto_id: int, _: Interno, db: DB):
     return _receta_out(*svc.obtener_receta(db, producto_id))
 
 
@@ -75,7 +75,7 @@ def reemplazar_receta(producto_id: int, datos: RecetaIn, _: Gestion, db: DB):
 
 
 @router.get("/materias-primas", response_model=list[MateriaPrimaOut])
-def listar_materias_primas(_: CurrentUser, db: DB):
+def listar_materias_primas(_: Interno, db: DB):
     return svc.listar_materias_primas(db)
 
 
