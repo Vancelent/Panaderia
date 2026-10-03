@@ -1,42 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
+import { qk, REFRESCO_STOCK_MS } from '@panaderia/core/consultas'
 import { get } from './api'
 
-// Claves de caché centralizadas: invalidar ['productos'] refresca todas sus variantes.
-export const qk = {
-  me: ['me'],
-  productos: (params) => ['productos', params ?? {}],
-  materiasPrimas: ['materias-primas'],
-  receta: (id) => ['receta', id],
-  turnoActual: ['turno-actual'],
-  ventasTurno: ['ventas-turno'],
-  turnosAbiertos: ['turnos-abiertos'],
-  pedidos: (params) => ['pedidos', params ?? {}],
-  pendienteProduccion: ['pendiente-produccion'],
-  clientes: (buscar) => ['clientes', buscar ?? ''],
-  resumen: (desde, hasta) => ['resumen', desde, hasta],
-  alertas: ['alertas'],
-  arqueos: ['arqueos'],
-  usuarios: ['usuarios'],
-  proveedores: ['proveedores'],
-  compras: ['compras'],
-  gastos: ['gastos'],
-  mediosPago: ['medios-pago'],
-  diaAnterior: ['dia-anterior'],
-  puntosEntrega: (params) => ['puntos-entrega', params ?? {}],
-  plantillas: (id) => ['plantillas', id],
-  descuentos: (id) => ['descuentos', id],
-  saldos: ['saldos'],
-  cuentaCorriente: (id) => ['cuenta-corriente', id],
-  hojas: (fecha) => ['hojas', fecha],
-  hoja: (id) => ['hoja', id],
-  resumenEntregas: (fecha) => ['resumen-entregas', fecha],
-  repartidores: ['repartidores'],
-  recorrido: (id) => ['recorrido', id],
-}
-
-// Cada cuánto se refresca el stock solo, para ver lo que cargan otras pantallas
-// (p. ej. la producción del panadero en la caja). Solo mientras la pestaña está visible.
-export const REFRESCO_STOCK_MS = 8_000
+// Las claves de caché y los intervalos de refresco son los del paquete compartido (packages/core):
+// invalidar ['productos'] refresca todas sus variantes, en la web y en la app.
+export { qk, REFRESCO_STOCK_MS }
 
 export const useProductos = (params) =>
   useQuery({
@@ -182,4 +150,19 @@ export const useRecorrido = (hojaId, enabled = true) =>
     queryFn: () => get(`/entregas/hojas/${hojaId}/recorrido`),
     enabled: !!hojaId && enabled,
     refetchInterval: 30_000,
+  })
+
+// ---------- Ingreso y seguridad ----------
+
+export const useMetodosIngreso = () =>
+  useQuery({ queryKey: qk.metodos, queryFn: () => get('/auth/metodos'), staleTime: 60_000 })
+
+export const useTerminales = (enabled = true) =>
+  useQuery({ queryKey: qk.terminales, queryFn: () => get('/auth/terminales'), enabled })
+
+export const useDispositivos = (usuarioId) =>
+  useQuery({
+    queryKey: qk.dispositivos(usuarioId),
+    queryFn: () => get(`/usuarios/${usuarioId}/dispositivos`),
+    enabled: !!usuarioId,
   })

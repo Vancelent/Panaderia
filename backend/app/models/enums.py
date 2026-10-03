@@ -95,3 +95,14 @@ class DestinoDevolucionEnum(str, enum.Enum):
 
     REINGRESO = "Reingreso"
     MERMA = "Merma"
+
+
+class ProveedorIdentidadEnum(str, enum.Enum):
+    GOOGLE = "Google"
+
+
+class TipoTerminalEnum(str, enum.Enum):
+    """Equipo registrado donde se puede entrar con PIN: la caja del mostrador o la tablet de cuadra."""
+
+    CAJA = "Caja"
+    CUADRA = "Cuadra"

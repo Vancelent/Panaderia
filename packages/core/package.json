@@ -1,0 +1,21 @@
+{
+  "name": "@panaderia/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lógica compartida entre la web y la app móvil: sin React DOM ni React Native y sin dependencias.",
+  "exports": {
+    ".": "./src/index.js",
+    "./roles": "./src/roles.js",
+    "./formato": "./src/formato.js",
+    "./consultas": "./src/consultas.js",
+    "./api": "./src/api/sesion.js",
+    "./caja": "./src/dominio/caja.js",
+    "./cobro": "./src/dominio/cobro.js",
+    "./busqueda": "./src/dominio/busqueda.js",
+    "./stock": "./src/dominio/stock.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

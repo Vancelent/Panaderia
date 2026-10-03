@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, status
 
-from app.api.deps import DB, CurrentUser, Gestion, Interno
+from app.api.deps import DB, Claims, CurrentUser, Gestion, GestionFuerte, Interno, exigir_auth_fuerte
 from app.models import MateriaPrima, Producto, RecetaInsumo, RolEnum
 from app.schemas.inventario import (
     AjusteStockProducto,
@@ -47,17 +47,20 @@ def listar_productos(usuario: CurrentUser, db: DB, incluir_inactivos: bool = Fal
 
 
 @router.post("/productos", response_model=ProductoOut, status_code=status.HTTP_201_CREATED)
-def crear_producto(datos: ProductoCreate, _: Gestion, db: DB):
+def crear_producto(datos: ProductoCreate, _: GestionFuerte, db: DB):
     return svc.crear_producto(db, datos)
 
 
 @router.patch("/productos/{producto_id}", response_model=ProductoOut)
-def actualizar_producto(producto_id: int, datos: ProductoUpdate, _: Gestion, db: DB):
+def actualizar_producto(producto_id: int, datos: ProductoUpdate, _: Gestion, claims: Claims, db: DB):
+    # Cambiar un precio es gestión sensible; renombrar o dar de baja un producto, no
+    if "precio_venta" in datos.model_fields_set:
+        exigir_auth_fuerte(claims)
     return svc.actualizar_producto(db, producto_id, datos)
 
 
 @router.put("/productos/{producto_id}/stock", response_model=ProductoOut)
-def ajustar_stock(producto_id: int, datos: AjusteStockProducto, _: Gestion, db: DB):
+def ajustar_stock(producto_id: int, datos: AjusteStockProducto, _: GestionFuerte, db: DB):
     return svc.ajustar_stock_producto(db, producto_id, datos.stock_mostrador)
 
 

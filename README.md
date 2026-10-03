@@ -62,7 +62,7 @@ ruff check app tests
 alembic check                            # modelos == migraciones
 
 cd frontend
-npm run lint && npm run build
+npm run lint && npm test && npm run build   # `npm test` corre las pruebas de packages/core
 ```
 
 ## Arquitectura
@@ -75,8 +75,10 @@ backend/app/
   schemas/    validación de entrada/salida (Pydantic)
   services/   reglas de negocio (caja, stock, producción, pedidos, finanzas)
   api/v1/     routers HTTP delgados: autenticación, rol y delegación al servicio
+packages/core/  lógica compartida con la app móvil, sin React ni dependencias: caja, cobro, búsqueda,
+                roles, formato, claves de consulta y sesión HTTP (cookies+CSRF / Bearer)
 frontend/src/
-  lib/        cliente HTTP (CSRF), queries, formato, roles
+  lib/        cliente HTTP (usa packages/core), queries, formato, roles
   auth/       sesión y guardas de ruta
   components/ UI compartida y layout
   features/   una carpeta por pantalla (pos, pedidos, produccion, stock, clientes, admin)
@@ -94,11 +96,16 @@ Todas las respuestas de error tienen la forma `{"error": {"code", "message", "de
 | Panadero | Producción, pedidos (mover estados), stock (lectura), mermas |
 | Repartidor | Solo su hoja de ruta (vista de lectura en la web; entregas y cobros desde la app móvil) |
 
+Cómo se ingresa: **Google** (cuentas que un administrador vinculó cargando el correo), **usuario y contraseña**
+(acceso de emergencia) y **PIN** en las cajas registradas (la cuenta con PIN no habilita la gestión sensible:
+precios, usuarios, ajustes… piden confirmar con contraseña o Google).
 La autorización se aplica en el backend; el frontend solo adapta la navegación.
 
 ## Seguridad
 
-- Sesión en cookie `httpOnly` + `SameSite=Strict`, con token CSRF *double-submit* en cada escritura.
+- Sesión en cookie `httpOnly` + `SameSite=Strict`, con token CSRF *double-submit* y verificación de `Origin`
+  en cada escritura. Google (OpenID Connect + PKCE en el servidor), PIN solo en equipos registrados y
+  reautenticación para la gestión sensible; la app móvil usa Bearer de 15 minutos con refresh rotativo.
 - JWT firmado con `JWT_SECRET` (obligatorio, ≥ 32 caracteres). Cambiar la contraseña,
   desactivar un usuario o cambiarle el rol invalida sus sesiones abiertas.
 - Límite de intentos de login por IP y usuario.

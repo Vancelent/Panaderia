@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado** | v3 aprobado · Fases 1 y 2 implementadas · Fase 3 implementada y probada localmente con Docker (falta el VPS real) |
+| **Estado** | v3 aprobado · Fases 1 y 2 implementadas · Fases 3 y 4 implementadas (la 3, probada con Docker en local; falta el VPS real) |
 | **Fecha** | 2026-09-30 |
 | **Base** | Rama `modernizacion` (commit `fc4b34b`) · ver [`arquitectura.md`](arquitectura.md) |
 | **Alcance** | Backend FastAPI, infraestructura, cliente web (caja y contabilidad) y app móvil universal |
@@ -14,6 +14,7 @@
 | v1 | Reparto matutino, despliegue con Cloudflare y app móvil para repartidor y monitoreo |
 | v2 | **Autenticación híbrida** (Google + PIN de caja) · **caja orientada a teclado** · **puntos de entrega** con descuentos por local en el módulo contable · **cuenta corriente simple, sin límite de crédito** · **app móvil universal** · **infraestructura low-cost** (VPS chico o Proxmox) · **ruta sugerida no obligatoria y registro del recorrido real** |
 | v3 | **Medios de pago preparados** para tarjeta y QR con pagos mixtos (`ventas_pagos`) · **"Pasar a día anterior" como ajuste manual** de la encargada, auditado · **traza GPS obligatoria** con **retención de 90 días** por particiones mensuales · despliegue principal en **VPS con dominio público** (Google siempre disponible) · preguntas P4–P6 resueltas |
+| v3.2 | **Fase 4 implementada**: ingreso con Google y PIN en terminales, sesión móvil con refresh rotativo, reautenticación para la gestión sensible, caja por teclado y `packages/core`. Ver [Fase 4 · notas de implementación](#fase-4--notas-de-implementación) |
 | v3.1 | **Fases 2 y 3 implementadas**: ajustes de diseño surgidos al implementar y probar contra PostgreSQL (bloqueo de la hoja en las confirmaciones, clave de `recorrido_puntos`, `inicio-ruta`, códigos de error nuevos). Ver [Fase 2 · notas de implementación](#fase-2--notas-de-implementación) |
 
 ## Índice
@@ -1439,7 +1440,7 @@ Archivos: `docker-compose.prod.yml`, `deploy/web.Dockerfile` (+ su `.dockerignor
 | `CLOUDFLARE_TUNNEL_TOKEN` | `${…:?}` (obligatoria) | `${…:-}` | Compose valida las variables obligatorias aunque el servicio esté en un perfil inactivo: obligarla impedía levantar el sistema sin túnel |
 | Proxies de confianza | ajuste en `core/config.py` | sin ajuste en la app: `--forwarded-allow-ips` de uvicorn y `trusted_proxies` de Caddy, ambos con la red `borde` | La app no lee esa lista en ningún lado; el filtrado ocurre en uvicorn |
 | Borrado de cookies | — | `delete_cookie` con los mismos atributos que `set_cookie` (`Secure`, `SameSite`) | Una cookie `__Host-` borrada sin `Secure` la rechaza el navegador y el logout no cerraba la sesión |
-| Nombres de cookie en el frontend | prefijo fijo | el frontend busca `__Host-panaderia_csrf` y, si no está, `panaderia_csrf` | El mismo build sirve en desarrollo y en producción |
+| Nombres de cookie en el frontend | prefijo fijo | primero se buscaba con y sin `__Host-`; en la Fase 4 pasó a ser explícito (`VITE_COOKIE_PREFIX` al compilar) | Elegir "la que aparezca" falla si conviven cookies de dos instalaciones en el mismo `localhost` |
 | CSP | no definida | CSP estricta en el Caddyfile (scripts solo del propio origen). El script del tema de `index.html` pasó a `public/tema.js` | Una CSP sin `unsafe-inline` en scripts no permite el `<script>` inline |
 | `web` | sin healthcheck | healthcheck sobre `/api/health`, `cap_drop: ALL` + `NET_BIND_SERVICE`, `tmpfs` en `/config` | Endurecimiento y estado visible en `docker compose ps` |
 | `api` y `db` | — | `start_period` en los healthchecks | La primera vez se aplican todas las migraciones |
@@ -1459,6 +1460,32 @@ Pendiente de la verificación de §11, que requiere el servidor real: puertos 80
 | Tocar | `app/core/security.py` (claims `amr`, `auth_time`, `aud`, `dsp`; hash de PIN y de refresh) · `app/api/deps.py` (`require_auth_fuerte`, audiencia, dispositivo y terminal revocados, verificación de `Origin`) · `app/api/v1/auth.py` · `app/api/v1/usuarios.py` · `frontend/src/features/LoginPage.jsx` · `frontend/src/features/pos/*` |
 | Crear | `app/models/seguridad.py` · `app/services/google.py` · `app/services/terminales.py` · `app/services/sesiones_moviles.py` · `app/api/v1/auth_google.py` · `app/api/v1/auth_movil.py` · migración `0006` · `packages/core/` (controlador de caja, consultas, roles) · `frontend/src/features/pos/PosTeclado.jsx`, `PosTactil.jsx`, `usePos.js` · tests de autenticación, PIN y reautenticación |
 | Tests clave | un `state` inválido rechaza el callback; una cuenta de Google no vinculada no entra; tras un login con Google la cookie de sesión sigue siendo Strict y el CSRF se sigue exigiendo; PIN sin terminal = 403; bloqueo tras 5 fallos; una sesión PIN recibe `reautenticacion_requerida` en gestión; rotación y reutilización de refresh |
+
+#### Fase 4 · notas de implementación
+
+Backend: `app/models/seguridad.py`, `services/{google,terminales,sesiones_moviles,sesion_web}.py`, `api/v1/{auth_google,auth_movil}.py`, `schemas/auth.py`, migración `0006` y los cambios en `core/security.py`, `core/config.py`, `api/deps.py`, `api/v1/{auth,usuarios,caja,inventario,contabilidad}.py`. Frontend: login con Google y PIN, diálogo de reautenticación, gestión de PIN, equipos y dispositivos en Usuarios, caja por teclado (`PosTeclado`, `PosTactil`, `usePos`, `CobroModal`) y `packages/core`. Diferencias con el diseño y por qué:
+
+| Tema | Diseño original | Implementado | Motivo |
+|---|---|---|---|
+| Google en producción | `GOOGLE_*` obligatorias | opcionales: sin `GOOGLE_CLIENT_ID` el botón no aparece | Permite el primer despliegue (y el acceso de emergencia, R6) antes de tener el cliente de Google. `PIN_PEPPER` sí es obligatoria (≥ 32) y la API no arranca sin ella |
+| Cookie `oauth` | se borra al usarla | también se borra ante un error | Una solicitud fallida no deja un `state` vivo |
+| Cierre de sesión PIN | "hasta el cierre del turno o 10 h" | `POST /turnos/actual/cierre` borra las cookies si la sesión es PIN; si no, vence a las 10 h (`PIN_SESION_MINUTOS`) | Es lo que "hasta el cierre del turno" significa en la práctica |
+| Intentos de PIN | 5 fallos bloquean el PIN | 5 fallos bloquean **a esa persona** (en la base, con la fila bloqueada) y un límite aparte por IP y equipo de 15 intentos | Que el error de una cajera no frene a las demás en la misma caja, y que probar PIN en varias personas tampoco sirva |
+| PIN débil | no definido | se rechazan dígitos repetidos y secuencias (`pin_debil`) y los roles sin PIN (`rol_sin_pin`) | Un PIN de 4 dígitos ya es corto: no se regalan los más obvios |
+| Revocación de la app | `token_version` | `token_version` **y** revocación de todos los dispositivos y refresh al cerrar sesiones, cambiar la contraseña, desactivar, cambiar de rol o desvincular Google | Sin esto, un refresh robado sobrevivía a "cerrar todas las sesiones" (lo detectó la prueba) |
+| Refresh en la ventana de gracia | tolerar el reintento | cada reintento dentro de los 30 s emite un hijo nuevo; `usado_en` conserva el primer uso | La gracia no se prolonga con cada reintento; ambos hijos son válidos |
+| Reautenticación en la app | pedir Google o contraseña | `POST /auth/movil/reautenticacion` devuelve un access con `auth_time` nuevo; el refresh no lo renueva | Cumple §2.4 sin tocar la familia de refresh |
+| Origen | verificar `Origin` o `Sec-Fetch-Site` | igual en las escrituras con cookie; sin esos encabezados (curl, tests) pasa, salvo en `POST /auth/pin`, que lo exige | El login con PIN no tiene sesión ni CSRF por doble envío: el origen propio y la cookie del terminal son sus controles |
+| Opciones de ingreso | — | `GET /auth/metodos` (público): si Google está disponible y, en un equipo registrado, quiénes pueden usar PIN | La pantalla de login decide qué mostrar sin pedidos extra |
+| Prefijo de cookies en el web | "con o sin prefijo" (Fase 3) | `VITE_COOKIE_PREFIX`, explícito al compilar (`__Host-` en la imagen de producción) | Dos instalaciones en el mismo `localhost` dejan cookies de ambas nombres: elegir "la que aparezca" mandaba un CSRF equivocado |
+| `packages/core` | monorepo con workspaces | carpeta `packages/core` con alias de Vite derivados de su `exports`; sin workspaces hasta que exista `mobile/` (Fase 5) | No obliga a cambiar los Dockerfiles de desarrollo más de lo necesario (se monta `./packages`) |
+| Contenido de `packages/core` | dominio, api, consultas, roles, formato | roles y navegación (íconos por nombre), formato, claves de consulta, nivel de stock, búsqueda sin acentos, controladores puros de caja y cobro, y la lógica de sesión HTTP con estrategia inyectable (cookies+CSRF / Bearer, reautenticación) | Sin dependencias: `instalarSesion(api, estrategia)` recibe el cliente ya creado. Las transiciones de pedidos y los descuentos "solo para mostrar" no se movieron: la web no tiene esa lógica aislada todavía |
+| Pruebas del paquete | tests unitarios | `node --test` (runner nativo, sin dependencias nuevas): `npm test` en `frontend/` | Cero dependencias de desarrollo |
+| `rango_local` | — | devuelve los límites en UTC | Corrección de un defecto previo: de noche, con el día en UTC ya cambiado, SQLite comparaba contra la hora local |
+
+Gestión sensible con autenticación fuerte (`401 reautenticacion_requerida` con PIN o con una autenticación de más de 15 minutos): usuarios, cambiar un precio (crear o editar `precio_venta`), descuentos, ajustes de stock, cierre de un turno ajeno, notas de crédito y ajustes de cuenta corriente, y registrar o desactivar terminales.
+
+Pruebas: `test_auth_hibrida.py`, `test_auth_movil.py`, `test_infra.py` (SQLite y PostgreSQL), `test_concurrencia_auth.py` y `test_migracion_0006.py` (solo PostgreSQL), más 50 pruebas unitarias del paquete. Cada propiedad de seguridad se verificó rompiendo el código (13 mutaciones: `state`, `nonce`, firma y algoritmo del `id_token`, terminal obligatorio, bloqueo de PIN y de la fila, auth fuerte y su antigüedad, terminal desactivado, `Origin`, audiencia, reutilización del refresh y revocación global).
 
 ### Fase 5 · App móvil universal
 

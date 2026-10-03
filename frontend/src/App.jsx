@@ -2,6 +2,7 @@ import { lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { RequireAuth } from './auth/RequireAuth'
 import { useAuth } from './auth/context'
+import ReautenticacionDialog from './auth/ReautenticacionDialog'
 import { AppShell } from './components/layout/AppShell'
 import { PantallaCarga } from './components/ui/Spinner'
 import LoginPage from './features/LoginPage'
@@ -31,6 +32,15 @@ function Inicio() {
 const conRol = (roles, el) => <RequireAuth roles={roles}>{el}</RequireAuth>
 
 export default function App() {
+  return (
+    <>
+      <ReautenticacionDialog />
+      <Rutas />
+    </>
+  )
+}
+
+function Rutas() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

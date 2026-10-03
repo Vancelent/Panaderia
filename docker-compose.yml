@@ -41,6 +41,8 @@ services:
       - "5173:5173"
     volumes:
       - ./frontend:/app
+      # Paquete compartido con la app móvil: vite.config.js lo busca en ../packages/core (= /packages/core)
+      - ./packages:/packages
       - /app/node_modules
     depends_on:
       - web

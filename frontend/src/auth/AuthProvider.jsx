@@ -28,15 +28,32 @@ export function AuthProvider({ children }) {
     retry: 1,
   })
 
-  const login = useCallback(
-    async (username, password) => {
-      const { data } = await api.post('/auth/login', { username, password })
+  // Después de ingresar se vuelve a pedir /auth/me: trae también cómo entró la persona (`sesion`:
+  // contraseña, Google o PIN) y si esa sesión alcanza para la gestión sensible.
+  const iniciarSesion = useCallback(
+    async (peticion) => {
+      await peticion()
+      const { data } = await api.get('/auth/me')
       limpiarDatos(qc)
       qc.setQueryData(qk.me, data)
       return data
     },
     [qc],
   )
+
+  const login = useCallback(
+    (username, password) => iniciarSesion(() => api.post('/auth/login', { username, password })),
+    [iniciarSesion],
+  )
+
+  // Solo desde un equipo registrado como caja o cuadra (docs/rfc-001 §2.3)
+  const loginPin = useCallback(
+    (usuarioId, pin) => iniciarSesion(() => api.post('/auth/pin', { usuario_id: usuarioId, pin })),
+    [iniciarSesion],
+  )
+
+  // Tras confirmar la identidad con la contraseña, la sesión vuelve a ser fuerte
+  const actualizarSesion = useCallback((me) => qc.setQueryData(qk.me, me), [qc])
 
   const logout = useCallback(async () => {
     try {
@@ -58,8 +75,17 @@ export function AuthProvider({ children }) {
   }, [qc])
 
   const value = useMemo(
-    () => ({ user: user ?? null, loading: isLoading, error: isError, retry: refetch, login, logout }),
-    [user, isLoading, isError, refetch, login, logout],
+    () => ({
+      user: user ?? null,
+      loading: isLoading,
+      error: isError,
+      retry: refetch,
+      login,
+      loginPin,
+      logout,
+      actualizarSesion,
+    }),
+    [user, isLoading, isError, refetch, login, loginPin, logout, actualizarSesion],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

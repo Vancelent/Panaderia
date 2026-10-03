@@ -4,4 +4,6 @@ try {
   var t = localStorage.getItem('tema') || 'system'
   var dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
   if (dark) document.documentElement.classList.add('dark')
-} catch (e) {}
+} catch {
+  // Sin acceso al almacenamiento (modo privado): queda el tema del sistema
+}

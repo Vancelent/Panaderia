@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -35,11 +35,15 @@ def hoy() -> date:
 
 
 def rango_local(desde: date, hasta: date) -> tuple[datetime, datetime]:
-    """[desde 00:00, hasta+1 00:00) en hora local, como datetimes con tz."""
+    """[desde 00:00, hasta+1 00:00) en hora local, expresado en UTC (es como se guardan las fechas).
+
+    En PostgreSQL da igual, pero SQLite guarda las fechas sin zona horaria y compara el reloj tal cual:
+    con límites en hora local, de noche (cuando el día en UTC ya cambió) el rango quedaba corrido.
+    """
     tz = zona()
     return (
-        datetime.combine(desde, time.min, tzinfo=tz),
-        datetime.combine(hasta + timedelta(days=1), time.min, tzinfo=tz),
+        datetime.combine(desde, time.min, tzinfo=tz).astimezone(UTC),
+        datetime.combine(hasta + timedelta(days=1), time.min, tzinfo=tz).astimezone(UTC),
     )
 
 

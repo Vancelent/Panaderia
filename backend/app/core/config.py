@@ -29,6 +29,35 @@ class Settings(BaseSettings):
     # Path=/, lo que bloquea el "cookie tossing" desde subdominios (docs/rfc-001 D7). Se antepone
     # al nombre de las cookies de sesión y CSRF; el frontend las busca con o sin el prefijo.
     cookie_prefix: Literal["", "__Host-"] = ""
+    # Cookie del equipo registrado (terminal) y cookie transitoria del login con Google
+    terminal_cookie_name: str = "panaderia_terminal"
+    oauth_cookie_name: str = "panaderia_oauth"
+    # Orígenes extra (además del propio host) desde los que se aceptan escrituras con cookie
+    origenes_permitidos: Annotated[list[str], NoDecode] = Field(default_factory=list)
+
+    # --- Autenticación híbrida (docs/rfc-001 §2) ---
+    # Google (OpenID Connect, authorization code + PKCE resuelto en el servidor). Sin
+    # GOOGLE_CLIENT_ID el botón de Google no aparece y el resto sigue funcionando (contraseña y PIN).
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    # Client IDs nativos (Android/iOS) cuyos id_token acepta POST /auth/movil/google
+    google_client_ids_movil: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    # Restringe el acceso a un dominio de Google Workspace (opcional)
+    google_hosted_domain: str | None = None
+    # https://<dominio>/api/v1/auth/google/callback (la que se registra en Google Cloud)
+    oauth_redirect_url: str | None = None
+    # Secreto del servidor para el hash de los PIN: sin él, un PIN de 4-6 dígitos se averigua
+    # en segundos a partir de una copia de la base. Obligatorio (≥ 32 caracteres) en producción.
+    pin_pepper: str | None = None
+    pin_max_fallos: int = Field(default=5, ge=3, le=20)
+    # Un PIN dura hasta cerrar el turno o este tiempo (lo que ocurra primero)
+    pin_sesion_minutos: int = Field(default=600, ge=30, le=1440)
+    # Una operación sensible exige haber iniciado sesión (contraseña o Google) hace menos que esto
+    reautenticacion_minutos: int = Field(default=15, ge=1, le=120)
+    # App móvil: access token corto + refresh rotativo
+    movil_access_minutos: int = Field(default=15, ge=1, le=120)
+    movil_refresh_dias: int = Field(default=30, ge=1, le=365)
+    movil_refresh_gracia_segundos: int = Field(default=30, ge=0, le=300)
     csrf_header_name: str = "X-CSRF-Token"
     # En producción detrás de HTTPS debe ser True.
     cookie_secure: bool = False
@@ -95,6 +124,36 @@ class Settings(BaseSettings):
                 raise ValueError(f"Medio de pago desconocido {e}. Válidos: {validos}") from None
         return v
 
+    @field_validator("origenes_permitidos", "google_client_ids_movil", mode="before")
+    @classmethod
+    def _lista_separada_por_comas(cls, v):
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v
+
+    @field_validator(
+        "google_client_id", "google_client_secret", "google_hosted_domain", "oauth_redirect_url",
+        "pin_pepper", mode="before",
+    )
+    @classmethod
+    def _vacio_es_none(cls, v):
+        # Copiar .env.example deja "GOOGLE_CLIENT_ID=": se toma como "sin configurar"
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @model_validator(mode="after")
+    def _produccion_exige_pepper(self):
+        if self.env == "production" and (not self.pin_pepper or len(self.pin_pepper) < 32):
+            raise ValueError("En producción PIN_PEPPER es obligatorio y debe tener al menos 32 caracteres.")
+        if self.google_client_id and not (self.google_client_secret and self.oauth_redirect_url):
+            raise ValueError("GOOGLE_CLIENT_ID exige GOOGLE_CLIENT_SECRET y OAUTH_REDIRECT_URL.")
+        return self
+
+    @property
+    def google_habilitado(self) -> bool:
+        return bool(self.google_client_id)
+
     @model_validator(mode="after")
     def _prefijo_de_cookies(self):
         if self.cookie_prefix == "__Host-":
@@ -106,6 +165,10 @@ class Settings(BaseSettings):
                 self.cookie_name = f"__Host-{self.cookie_name}"
             if not self.csrf_cookie_name.startswith("__Host-"):
                 self.csrf_cookie_name = f"__Host-{self.csrf_cookie_name}"
+            if not self.terminal_cookie_name.startswith("__Host-"):
+                self.terminal_cookie_name = f"__Host-{self.terminal_cookie_name}"
+            if not self.oauth_cookie_name.startswith("__Host-"):
+                self.oauth_cookie_name = f"__Host-{self.oauth_cookie_name}"
         return self
 
     @field_validator("database_url")

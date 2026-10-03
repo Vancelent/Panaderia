@@ -18,10 +18,12 @@ from app.models.enums import (
     EstadoTurnoEnum,
     MetodoPagoEnum,
     OrigenVentaEnum,
+    ProveedorIdentidadEnum,
     RolEnum,
     TipoEventoEntregaEnum,
     TipoEventoRecorridoEnum,
     TipoMovimientoCtaCteEnum,
+    TipoTerminalEnum,
     TipoTurnoEnum,
 )
 from app.models.inventario import (
@@ -41,6 +43,7 @@ from app.models.reparto import (
     RecorridoEvento,
     RecorridoPunto,
 )
+from app.models.seguridad import Dispositivo, IdentidadExterna, RefreshToken, Terminal
 from app.models.soporte import Numerador, OperacionIdempotente
 from app.models.usuario import Usuario
 
@@ -53,6 +56,7 @@ __all__ = [
     "DestinoDevolucionEnum",
     "DetallePedido",
     "DetalleVenta",
+    "Dispositivo",
     "Entrega",
     "EntregaEvento",
     "EntregaItem",
@@ -69,9 +73,12 @@ __all__ = [
     "Merma",
     "MetodoPagoEnum",
     "MovimientoCuentaCorriente",
+    "IdentidadExterna",
     "Numerador",
     "OperacionIdempotente",
     "OrigenVentaEnum",
+    "ProveedorIdentidadEnum",
+    "RefreshToken",
     "Pedido",
     "PlantillaEntrega",
     "Producto",
@@ -81,6 +88,8 @@ __all__ = [
     "RecorridoEvento",
     "RecorridoPunto",
     "RolEnum",
+    "Terminal",
+    "TipoTerminalEnum",
     "TipoEventoEntregaEnum",
     "TipoEventoRecorridoEnum",
     "TipoMovimientoCtaCteEnum",

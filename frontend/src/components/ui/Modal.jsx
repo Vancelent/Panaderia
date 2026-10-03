@@ -19,7 +19,9 @@ export function Modal({ open, onClose, title, description, children, footer, siz
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
     // Foco inicial: el primer campo, o el diálogo
-    const primero = ref.current?.querySelector('[autofocus], input, select, textarea, button:not([data-cerrar])')
+    const primero = ref.current?.querySelector(
+      '[data-autofocus], [autofocus], input, select, textarea, button:not([data-cerrar])',
+    )
     ;(primero || ref.current)?.focus()
     return () => {
       document.removeEventListener('keydown', onKey)

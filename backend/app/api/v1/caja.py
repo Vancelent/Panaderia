@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
-from app.api.deps import DB, Gestion, Mostrador
+from app.api.deps import DB, Claims, Gestion, GestionFuerte, Mostrador
 from app.core.errors import NotFoundError
+from app.core.security import AMR_PIN
 from app.models import Arqueo, Venta
 from app.schemas.caja import (
     ArqueoOut,
@@ -14,6 +15,7 @@ from app.schemas.caja import (
     VentaOut,
 )
 from app.services import caja as svc
+from app.services import sesion_web
 
 router = APIRouter(tags=["Caja"])
 
@@ -63,11 +65,14 @@ def abrir_turno(datos: TurnoAbrir, usuario: Mostrador, db: DB):
 
 
 @router.post("/turnos/actual/cierre", response_model=TurnoCierreOut)
-def cerrar_turno_propio(datos: TurnoCerrar, usuario: Mostrador, db: DB):
+def cerrar_turno_propio(datos: TurnoCerrar, usuario: Mostrador, claims: Claims, response: Response, db: DB):
     turno = svc.turno_abierto(db, usuario)
     if turno is None:
         raise NotFoundError("No tenés un turno abierto.")
     svc.cerrar_turno(db, turno.id, datos.monto_declarado)
+    if claims["amr"] == AMR_PIN:
+        # Una sesión con PIN dura hasta cerrar el turno: la próxima persona entra con su propio PIN
+        sesion_web.borrar_sesion(response)
     return {"mensaje": "Turno cerrado. El arqueo quedó registrado.", "turno_id": turno.id}
 
 
@@ -88,7 +93,7 @@ def turnos_abiertos(_: Gestion, db: DB):
 
 
 @router.post("/turnos/{turno_id}/cierre", response_model=TurnoCierreOut)
-def cerrar_turno_ajeno(turno_id: int, datos: TurnoCerrar, _: Gestion, db: DB):
+def cerrar_turno_ajeno(turno_id: int, datos: TurnoCerrar, _: GestionFuerte, db: DB):
     svc.cerrar_turno(db, turno_id, datos.monto_declarado)
     return {"mensaje": "Turno cerrado. El arqueo quedó registrado.", "turno_id": turno_id}
 

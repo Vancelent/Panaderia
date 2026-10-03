@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import (
     auth,
+    auth_google,
+    auth_movil,
     caja,
     comercial,
     contabilidad,
@@ -57,7 +59,8 @@ def create_app() -> FastAPI:
 
     v1 = APIRouter(prefix="/api/v1")
     for modulo in (
-        auth, usuarios, caja, inventario, produccion, comercial, finanzas, contabilidad, stock, entregas
+        auth, auth_google, auth_movil, usuarios, caja, inventario, produccion, comercial, finanzas,
+        contabilidad, stock, entregas
     ):
         v1.include_router(modulo.router)
     app.include_router(v1)

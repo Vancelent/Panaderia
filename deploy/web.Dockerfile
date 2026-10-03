@@ -13,7 +13,13 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
+# El paquete compartido con la app móvil vive en packages/core: vite.config.js lo busca en ../packages/core,
+# o sea en /packages/core (el frontend está en /app)
+COPY packages/core /packages/core
 COPY frontend/ ./
+# Las cookies de la web llevan este prefijo (COOKIE_PREFIX de la API en docker-compose.prod.yml)
+ARG VITE_COOKIE_PREFIX=__Host-
+ENV VITE_COOKIE_PREFIX=$VITE_COOKIE_PREFIX
 RUN npm run build
 
 # ---- Etapa 2: Caddy con el build estático ------------------------------------------------------

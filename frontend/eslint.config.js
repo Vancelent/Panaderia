@@ -22,4 +22,9 @@ export default defineConfig([
       'no-unused-vars': ['error', { varsIgnorePattern: '^_', ignoreRestSiblings: true }],
     },
   },
+  {
+    // La configuración de Vite corre en Node, no en el navegador
+    files: ['vite.config.js'],
+    languageOptions: { globals: globals.node },
+  },
 ])

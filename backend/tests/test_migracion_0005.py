@@ -117,5 +117,6 @@ def test_la_migracion_se_deshace_y_se_repite(base_temporal):  # noqa: F811
     _alembic(base_temporal, "check")
     with engine.connect() as c:
         assert c.scalar(text("SELECT tipo::text FROM turnos WHERE id = 1")) == "MOSTRADOR"
-        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
+        # head: la 0005 es la del reparto y las siguientes se apoyan en ella
+        assert c.scalar(text("SELECT version_num FROM alembic_version")) >= "0005"
     engine.dispose()

@@ -1,5 +1,5 @@
-# Contexto de build de deploy/web.Dockerfile (la raíz del repositorio): solo hace falta frontend/
-# y deploy/Caddyfile. BuildKit usa este archivo en lugar de un .dockerignore en la raíz.
+# Contexto de build de deploy/web.Dockerfile (la raíz del repositorio): solo hace falta frontend/,
+# packages/core y deploy/Caddyfile. BuildKit usa este archivo en lugar de un .dockerignore en la raíz.
 .git
 .env
 .env.*
@@ -9,5 +9,6 @@ docs
 README.md
 frontend/node_modules
 frontend/dist
+packages/*/node_modules
 deploy/*
 !deploy/Caddyfile

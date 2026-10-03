@@ -14,7 +14,7 @@ os.environ["COOKIE_SECURE"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.api.v1.auth import get_limiter  # noqa: E402
+from app.api.v1.auth import get_limiter, get_pin_limiter  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import SessionLocal, get_engine  # noqa: E402
@@ -49,6 +49,7 @@ def _limpiar_tablas():
         for tabla in reversed(Base.metadata.sorted_tables):
             conn.execute(tabla.delete())
     get_limiter.cache_clear()
+    get_pin_limiter.cache_clear()
 
 
 @pytest.fixture
@@ -145,3 +146,19 @@ def reparto(como, catalogo):
         "norte": punto("Norte", ("-34.580000", "-58.420000")),
         "punto": punto,
     }
+
+
+@pytest.fixture
+def google_activo(monkeypatch):
+    """Google configurado y con la firma de los id_token resuelta por un par de claves de prueba."""
+    from app.core import config
+    from app.services import google
+    from tests import google_falso
+
+    for k, v in google_falso.ENTORNO.items():
+        monkeypatch.setenv(k, v)
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(google, "_clave_de_firma", lambda token: google_falso.CLAVE_GOOGLE.public_key())
+    yield monkeypatch
+    monkeypatch.undo()
+    config.get_settings.cache_clear()

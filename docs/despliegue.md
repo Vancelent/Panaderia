@@ -60,6 +60,31 @@ sudo apt-get install -y zram-tools && echo -e "ALGO=zstd\nPERCENT=50" | sudo tee
 | Bot Fight Mode | Activado para la web; **excluir** `/api/v1/*` (lo usará la app móvil) |
 | Caché | *Bypass* para `/api/*`. `/assets/*` se cachea respetando los encabezados de Caddy (`immutable`) |
 
+## 2 bis. Ingreso con Google
+
+Google exige una URL de retorno **HTTPS pública**, por eso el dominio de la sección 2 es requisito.
+
+1. En [Google Cloud Console](https://console.cloud.google.com/apis/credentials) creá un proyecto y una
+   *pantalla de consentimiento* (tipo **Externo** o **Interno** si usás Google Workspace; con ámbitos
+   `openid`, `email` y `profile`).
+2. Creá unas credenciales **ID de cliente de OAuth → Aplicación web** y registrá como *URI de redireccionamiento
+   autorizado*: `https://app.tudominio.com/api/v1/auth/google/callback` (exactamente esa).
+3. Copiá el ID y el secreto a `.env` (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) y poné
+   `OAUTH_REDIRECT_URL=https://app.tudominio.com/api/v1/auth/google/callback`.
+4. En **Usuarios**, un administrador carga el **correo** de cada persona. No hay alta automática: solo entran
+   las cuentas vinculadas. El primer ingreso con Google cuyo correo (verificado) coincida crea la vinculación.
+5. Dejá siempre **al menos un administrador con contraseña**: si Google o Internet fallan, el mostrador sigue
+   operando con PIN y la gestión con contraseña.
+
+La app móvil usa sus propios ID de cliente (Android e iOS): van en `GOOGLE_CLIENT_IDS_MOVIL`.
+
+### PIN en la caja
+
+El PIN solo funciona en un **equipo registrado**: un administrador o la encargada abre la caja en la PC del
+mostrador y elige **«Registrar este equipo como caja»** (el equipo queda identificado por una cookie que el
+servidor reconoce por su hash). Después, en el login de ese equipo aparecen las personas con PIN. Para dejar
+de aceptar un equipo, se lo desactiva en **Usuarios → Equipos**: sus sesiones se cierran en el acto.
+
 ## 3. Primer despliegue
 
 ```bash
@@ -79,6 +104,8 @@ Variables que hay que completar en `.env`:
 | `POSTGRES_PASSWORD` | Una clave larga y aleatoria: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `JWT_SECRET` | Otra distinta, ≥ 32 caracteres: `python3 -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `CLOUDFLARE_TUNNEL_TOKEN` | El token del túnel (paso 2) |
+| `PIN_PEPPER` | **Obligatoria** (≥ 32 caracteres): `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`. Sin ella la API no arranca. No la cambies después de cargar PIN (habría que cargarlos de nuevo) y guardala junto con los respaldos de la base |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `OAUTH_REDIRECT_URL` | Ingreso con Google (sección 2 bis). Sin ellas el botón de Google no aparece y el sistema funciona con contraseña y PIN |
 | `ZONA_HORARIA` | `America/Argentina/Buenos_Aires` (o la del local) |
 | `PANADERIA_LATITUD` / `PANADERIA_LONGITUD` | Ubicación del local: es el punto de partida de la ruta sugerida |
 
@@ -108,14 +135,15 @@ Sin el perfil `tunnel` el sistema corre igual, accesible solo en `127.0.0.1:8080
 Con un archivo de variables aparte, sin tocar tu `.env` de desarrollo:
 
 ```bash
-cp .env.example .env.prueba         # completá POSTGRES_PASSWORD y JWT_SECRET
+cp .env.example .env.prueba         # completá POSTGRES_PASSWORD, JWT_SECRET y PIN_PEPPER
 ENV_FILE=.env.prueba docker compose --env-file .env.prueba -f docker-compose.prod.yml up -d --build
 docker compose --env-file .env.prueba -f docker-compose.prod.yml exec api python -m app.cli crear-admin <usuario>
 # → http://localhost:8080
 ```
 
 Usa el proyecto `panaderia-prod`: no pisa los contenedores ni el volumen del `docker-compose.yml` de
-desarrollo. Para borrar la prueba (incluida su base): `docker compose -f docker-compose.prod.yml -p panaderia-prod down -v`.
+desarrollo. Las cookies no distinguen puertos: no uses a la vez el sistema de desarrollo (`localhost:5173`) y esta
+prueba (`localhost:8080`) en el mismo navegador, o se mezclan las cookies de sesión de ambos. Para borrar la prueba (incluida su base): `docker compose -f docker-compose.prod.yml -p panaderia-prod down -v`.
 
 ## 4. Actualizar a una versión nueva
 

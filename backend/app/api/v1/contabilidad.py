@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Query, status
 
-from app.api.deps import DB, Gestion, GestionORepartidor
+from app.api.deps import DB, Gestion, GestionFuerte, GestionORepartidor
 from app.models import DescuentoPunto, MovimientoCuentaCorriente, PuntoEntrega
 from app.models.enums import MetodoPagoEnum, RolEnum, TipoTurnoEnum
 from app.schemas.contabilidad import (
@@ -110,12 +110,14 @@ def listar_descuentos(punto_id: int, _: Gestion, db: DB):
     response_model=DescuentoOut,
     status_code=status.HTTP_201_CREATED,
 )
-def crear_descuento(punto_id: int, datos: DescuentoCreate, _: Gestion, db: DB):
+def crear_descuento(punto_id: int, datos: DescuentoCreate, _: GestionFuerte, db: DB):
     return _descuento_out(descuentos.crear_descuento(db, punto_id, datos))
 
 
 @router.patch("/puntos-entrega/{punto_id}/descuentos/{descuento_id}", response_model=DescuentoOut)
-def actualizar_descuento(punto_id: int, descuento_id: int, datos: DescuentoUpdate, _: Gestion, db: DB):
+def actualizar_descuento(
+    punto_id: int, descuento_id: int, datos: DescuentoUpdate, _: GestionFuerte, db: DB
+):
     return _descuento_out(descuentos.actualizar_descuento(db, punto_id, descuento_id, datos))
 
 
@@ -170,12 +172,12 @@ def registrar_pago(cliente_id: int, datos: PagoCuentaCorrienteIn, usuario: Gesti
     response_model=MovimientoOut,
     status_code=status.HTTP_201_CREATED,
 )
-def registrar_nota_credito(cliente_id: int, datos: NotaCreditoIn, usuario: Gestion, db: DB):
+def registrar_nota_credito(cliente_id: int, datos: NotaCreditoIn, usuario: GestionFuerte, db: DB):
     return _movimiento_out(contabilidad.registrar_nota_credito(db, usuario, cliente_id, datos))
 
 
 @router.post(
     "/clientes/{cliente_id}/ajustes", response_model=MovimientoOut, status_code=status.HTTP_201_CREATED
 )
-def registrar_ajuste(cliente_id: int, datos: AjusteIn, usuario: Gestion, db: DB):
+def registrar_ajuste(cliente_id: int, datos: AjusteIn, usuario: GestionFuerte, db: DB):
     return _movimiento_out(contabilidad.registrar_ajuste(db, usuario, cliente_id, datos))
